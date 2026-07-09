@@ -87,6 +87,7 @@ jobs:
         run: |
           cleanup() {
             docker rm --force ledger-service-ci > /dev/null 2>&1 || true
+            docker rm --force ledger-service-postgres-ci > /dev/null 2>&1 || true
             if [[ -n "${mock_server_pid:-}" ]]; then
               kill "${mock_server_pid}" > /dev/null 2>&1 || true
             fi
@@ -96,6 +97,22 @@ jobs:
           test "$(docker image inspect \
             --format '{{.Config.User}}' \
             digital-bank-java/ledger-service:ci)" = "10001:10001"
+
+          docker run --detach \
+            --name ledger-service-postgres-ci \
+            --publish 5432:5432 \
+            --env POSTGRES_DB=ledger_service_ci \
+            --env POSTGRES_USER=ledger_service \
+            --env POSTGRES_PASSWORD=ledger_service \
+            postgres:16-alpine
+
+          for attempt in {1..30}; do
+            if docker exec ledger-service-postgres-ci \
+              pg_isready --username ledger_service --dbname ledger_service_ci > /dev/null; then
+              break
+            fi
+            sleep 2
+          done
 
           python3 - <<'PY' &
           import json
@@ -112,6 +129,12 @@ jobs:
                       "name": "ci",
                       "source": {
                           "server.port": 8083,
+                          "spring.datasource.url": "jdbc:postgresql://host.docker.internal:5432/ledger_service_ci",
+                          "spring.datasource.username": "ledger_service",
+                          "spring.datasource.password": "ledger_service",
+                          "spring.datasource.driver-class-name": "org.postgresql.Driver",
+                          "spring.jpa.hibernate.ddl-auto": "validate",
+                          "spring.jpa.open-in-view": "false",
                       },
                   }
               ],
