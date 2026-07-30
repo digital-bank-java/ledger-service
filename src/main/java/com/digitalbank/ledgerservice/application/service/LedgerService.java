@@ -10,6 +10,7 @@ import com.digitalbank.ledgerservice.domain.exception.LedgerEntryNotFoundExcepti
 import com.digitalbank.ledgerservice.domain.model.LedgerEntry;
 import com.digitalbank.ledgerservice.domain.model.LedgerEntryId;
 import com.digitalbank.ledgerservice.domain.model.LedgerEntryLine;
+import com.digitalbank.ledgerservice.domain.model.LedgerLineType;
 import java.time.Clock;
 import java.util.ArrayList;
 import org.springframework.stereotype.Service;
@@ -33,9 +34,9 @@ public class LedgerService implements PostLedgerEntryInputPort, GetLedgerEntryIn
 
         var lines = new ArrayList<LedgerEntryLine>();
         command.debitLines()
-                .forEach(line -> lines.add(new LedgerEntryLine(line.accountId(), line.lineType(), line.amount())));
+                .forEach(line -> lines.add(new LedgerEntryLine(line.accountId(), LedgerLineType.DEBIT, line.amount())));
         command.creditLines()
-                .forEach(line -> lines.add(new LedgerEntryLine(line.accountId(), line.lineType(), line.amount())));
+                .forEach(line -> lines.add(new LedgerEntryLine(line.accountId(), LedgerLineType.CREDIT, line.amount())));
 
         var ledgerEntry = LedgerEntry.post(
                 LedgerEntryId.newId(),
