@@ -4,7 +4,6 @@ import com.digitalbank.ledgerservice.application.port.in.GetLedgerEntryInputPort
 import com.digitalbank.ledgerservice.application.port.in.PostLedgerEntryCommand;
 import com.digitalbank.ledgerservice.application.port.in.PostLedgerEntryInputPort;
 import com.digitalbank.ledgerservice.domain.model.LedgerEntryId;
-import com.digitalbank.ledgerservice.domain.model.LedgerLineType;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.ExampleObject;
@@ -120,10 +119,10 @@ class LedgerController {
                 request.currency(),
                 request.effectiveAt(),
                 request.debitLines().stream()
-                        .map(line -> new PostLedgerEntryCommand.Line(line.accountId(), line.amount(), LedgerLineType.DEBIT))
+                        .map(line -> new PostLedgerEntryCommand.Line(line.accountId(), line.amount()))
                         .toList(),
                 request.creditLines().stream()
-                        .map(line -> new PostLedgerEntryCommand.Line(line.accountId(), line.amount(), LedgerLineType.CREDIT))
+                        .map(line -> new PostLedgerEntryCommand.Line(line.accountId(), line.amount()))
                         .toList()));
 
         var response = LedgerEntryResponse.from(view);

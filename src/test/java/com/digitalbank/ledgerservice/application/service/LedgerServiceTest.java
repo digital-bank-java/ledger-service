@@ -59,6 +59,31 @@ class LedgerServiceTest {
                 .hasMessageContaining("total debit amount must equal total credit amount");
     }
 
+    @Test
+    void treatsDebitAndCreditBucketsAsTheSourceOfLineType() {
+        var debitAccountId = UUID.randomUUID();
+        var creditAccountId = UUID.randomUUID();
+        var command = new PostLedgerEntryCommand(
+                "ledger-posting-004",
+                "Settlement posting",
+                "AED",
+                Instant.parse("2026-07-03T09:00:00Z"),
+                List.of(new PostLedgerEntryCommand.Line(debitAccountId, new BigDecimal("100.00"))),
+                List.of(new PostLedgerEntryCommand.Line(creditAccountId, new BigDecimal("100.00"))));
+
+        var view = ledgerService.postLedgerEntry(command);
+
+        assertThat(view.lines())
+                .anySatisfy(line -> {
+                    assertThat(line.accountId()).isEqualTo(debitAccountId);
+                    assertThat(line.lineType()).isEqualTo(LedgerLineType.DEBIT);
+                })
+                .anySatisfy(line -> {
+                    assertThat(line.accountId()).isEqualTo(creditAccountId);
+                    assertThat(line.lineType()).isEqualTo(LedgerLineType.CREDIT);
+                });
+    }
+
     private static PostLedgerEntryCommand balancedCommand(
             String postingRequestId, BigDecimal debitAmount, BigDecimal creditAmount) {
         return new PostLedgerEntryCommand(
@@ -66,8 +91,8 @@ class LedgerServiceTest {
                 "Settlement posting",
                 "AED",
                 Instant.parse("2026-07-03T09:00:00Z"),
-                List.of(new PostLedgerEntryCommand.Line(UUID.randomUUID(), debitAmount, LedgerLineType.DEBIT)),
-                List.of(new PostLedgerEntryCommand.Line(UUID.randomUUID(), creditAmount, LedgerLineType.CREDIT)));
+                List.of(new PostLedgerEntryCommand.Line(UUID.randomUUID(), debitAmount)),
+                List.of(new PostLedgerEntryCommand.Line(UUID.randomUUID(), creditAmount)));
     }
 
     private static final class InMemoryLedgerEntryRepository implements LedgerEntryRepository {
