@@ -48,11 +48,13 @@ jobs:
           version: v4.2.0
 
       - name: Lint chart
-        run: helm lint helm --strict
+        run: helm lint helm --strict --values helm/values-sit.yaml
 
       - name: Render chart
         run: |
           helm template ledger-service helm \
+            --namespace digital-bank-sit \
+            --values helm/values-sit.yaml \
             --set image.tag="${GITHUB_SHA}" \
             > rendered.yaml
           test -s rendered.yaml
