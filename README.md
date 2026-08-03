@@ -1,15 +1,15 @@
 # Ledger Service
 
-Ledger Service will own immutable financial postings for the Digital Bank Java platform.
-
-This bootstrap slice establishes the deployable service foundation only. Ledger posting commands, journal entries, Kafka publication, and reconciliation behavior will be implemented in later stories.
+Ledger Service owns immutable, balanced financial journal entries for the Digital Bank Java platform. It currently supports internal ledger-entry posting and lookup backed by PostgreSQL; Kafka publication, reconciliation, and transaction-driven posting workflows remain planned.
 
 ## Responsibilities
 
-- Provide the future home for immutable debit and credit ledger postings.
+- Persist immutable, balanced debit and credit ledger entries.
+- Reject unbalanced entries and conflicting posting-request identifiers.
+- Provide internal HTTP APIs for ledger-entry posting and lookup.
 - Expose operational health endpoints.
 - Load environment-specific configuration from Config Server.
-- Publish OpenAPI metadata for future HTTP APIs.
+- Publish OpenAPI metadata for the implemented internal HTTP APIs.
 
 ## Non-Responsibilities
 
@@ -26,7 +26,7 @@ The service reads configuration from Config Server:
 spring.config.import=configserver:${CONFIG_SERVER_URL:http://localhost:8888}
 ```
 
-The default service port is expected to be provided by Config Server. CI uses a mock Config Server response with `server.port=8083`.
+The configured service port is `8083`. SIT datasource settings and runtime identity are supplied by Config Server from `config-repo`; CI uses an isolated mock Config Server response.
 
 ## Prerequisites
 
@@ -35,13 +35,18 @@ The default service port is expected to be provided by Config Server. CI uses a 
 - Helm 4.
 - Kubernetes access for SIT deployment validation.
 
-## Run From A Workstation For Debugging
+The Maven Wrapper is included, so a global Maven installation is not required.
 
-Run tests:
+## Test And Quality Gate
 
 ```bash
 ./mvnw test
+./mvnw verify
 ```
+
+`./mvnw test` runs unit tests. `./mvnw verify` additionally runs integration tests, including PostgreSQL-backed Testcontainers checks.
+
+## Run From A Workstation For Debugging
 
 SIT is the supported lowest runtime environment. A workstation JVM is only a temporary debugging process connected to forwarded SIT dependencies; it is not a separate `local` profile or deployment environment.
 
@@ -81,7 +86,9 @@ Expected value:
 10001:10001
 ```
 
-## Helm
+The runtime image contains no configuration repository or database credentials.
+
+## Deploy To Local SIT
 
 Validate the chart:
 
@@ -105,8 +112,28 @@ helm upgrade --install ledger-service helm \
   --timeout 5m
 ```
 
+After deployment, verify the service locally through a temporary port-forward:
+
+```bash
+kubectl port-forward service/ledger-service 18083:8083 --namespace digital-bank-sit
+curl --fail http://localhost:18083/actuator/health
+curl --fail http://localhost:18083/v3/api-docs
+```
+
+Ledger APIs are currently internal service APIs. Do not add a public API Gateway route until an approved consumer and authorization policy exist.
+
 ## Kafka Direction
 
 Kafka is shared platform infrastructure, not part of the Ledger Service container.
 
-For local SIT, Kafka should be deployed into a shared infrastructure namespace and managed from the local infrastructure repository. For AWS UAT and production, the preferred direction is a managed Kafka service, such as Amazon MSK, connected privately to the Kubernetes workloads.
+For local SIT, Kafka is deployed as shared infrastructure in `digital-bank-sit` and owned by `infra-sit`. For AWS UAT and production, the preferred direction is a managed Kafka service, such as Amazon MSK, connected privately to Kubernetes workloads.
+
+Ledger entry persistence is the current implementation. Outbox/inbox handling, event schemas, and Kafka publication must be added with explicit idempotency and reconciliation requirements; they are not implied by the presence of the Kafka broker.
+
+## Security, Promotion, And Contribution
+
+The SIT deployment uses an internal `ClusterIP` Service, a non-root container, a read-only root filesystem, bounded writable temporary storage, and credentials supplied from Kubernetes Secrets. Do not commit credentials, tokens, or production endpoints.
+
+The same artifact is intended to move through `sit`, `uat`, and `prod` without rebuilding. UAT and production infrastructure will use managed services and controlled secret delivery.
+
+Pull requests and changes to `main` run Maven verification, Helm lint/rendering, and a container smoke test. Use a tracked issue, dedicated branch, and pull request for each change. See the organization [README standard](https://github.com/digital-bank-java/.github/blob/main/docs/readme-standard.md) and [platform conventions](https://github.com/digital-bank-java/.github/blob/main/docs/platform-conventions.md).
