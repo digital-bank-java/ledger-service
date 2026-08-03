@@ -35,7 +35,7 @@ The default service port is expected to be provided by Config Server. CI uses a 
 - Helm 4.
 - Kubernetes access for SIT deployment validation.
 
-## Run Locally
+## Run From A Workstation For Debugging
 
 Run tests:
 
@@ -43,10 +43,14 @@ Run tests:
 ./mvnw test
 ```
 
-Run the service with a local Config Server:
+SIT is the supported lowest runtime environment. A workstation JVM is only a temporary debugging process connected to forwarded SIT dependencies; it is not a separate `local` profile or deployment environment.
+
+Follow the shared [workstation debugging procedure](https://github.com/digital-bank-java/.github/blob/main/docs/workstation-debugging-against-sit.md). It covers scaling this deployment to zero, forwarding Config Server and PostgreSQL, supplying temporary synthetic SIT credentials, and restoring the deployment after debugging.
+
+After exporting the documented overrides, start the service:
 
 ```bash
-CONFIG_SERVER_URL=http://localhost:8888 ./mvnw spring-boot:run
+./mvnw spring-boot:run
 ```
 
 Check health:
