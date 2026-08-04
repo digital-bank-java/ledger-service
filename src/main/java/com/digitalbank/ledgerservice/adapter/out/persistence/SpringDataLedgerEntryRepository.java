@@ -9,5 +9,9 @@ interface SpringDataLedgerEntryRepository extends JpaRepository<LedgerEntryJpaEn
     @EntityGraph(attributePaths = "lines")
     java.util.Optional<LedgerEntryJpaEntity> findWithLinesById(UUID id);
 
-    boolean existsByPostingRequestId(String postingRequestId);
+    @EntityGraph(attributePaths = "lines")
+    java.util.Optional<LedgerEntryJpaEntity> findWithLinesByPostingRequestId(String postingRequestId);
+
+    @EntityGraph(attributePaths = "lines")
+    java.util.Optional<LedgerEntryJpaEntity> findWithLinesByReversalOfEntryId(UUID reversalOfEntryId);
 }

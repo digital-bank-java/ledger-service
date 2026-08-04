@@ -15,6 +15,8 @@ public final class LedgerEntry {
     private final Instant effectiveAt;
     private final Instant createdAt;
     private final List<LedgerEntryLine> lines;
+    private final String requestFingerprint;
+    private final LedgerEntryId reversalOfLedgerEntryId;
 
     private LedgerEntry(
             LedgerEntryId id,
@@ -23,7 +25,9 @@ public final class LedgerEntry {
             String currency,
             Instant effectiveAt,
             Instant createdAt,
-            List<LedgerEntryLine> lines) {
+            List<LedgerEntryLine> lines,
+            String requestFingerprint,
+            LedgerEntryId reversalOfLedgerEntryId) {
         this.id = id;
         this.postingRequestId = postingRequestId;
         this.description = description;
@@ -31,6 +35,8 @@ public final class LedgerEntry {
         this.effectiveAt = effectiveAt;
         this.createdAt = createdAt;
         this.lines = List.copyOf(lines);
+        this.requestFingerprint = requestFingerprint;
+        this.reversalOfLedgerEntryId = reversalOfLedgerEntryId;
     }
 
     public static LedgerEntry post(
@@ -51,7 +57,33 @@ public final class LedgerEntry {
                 normalizedCurrency,
                 requireInstant(effectiveAt, "effectiveAt"),
                 requireInstant(createdAt, "createdAt"),
-                sortedLines);
+                sortedLines,
+                null,
+                null);
+    }
+
+    public static LedgerEntry post(
+            LedgerEntryId id,
+            String postingRequestId,
+            String description,
+            String currency,
+            Instant effectiveAt,
+            Instant createdAt,
+            List<LedgerEntryLine> lines,
+            String requestFingerprint,
+            LedgerEntryId reversalOfLedgerEntryId) {
+        var normalizedCurrency = requireCurrency(currency);
+        var sortedLines = requireBalancedLines(lines);
+        return new LedgerEntry(
+                requireId(id),
+                requireText(postingRequestId, "postingRequestId"),
+                requireText(description, "description"),
+                normalizedCurrency,
+                requireInstant(effectiveAt, "effectiveAt"),
+                requireInstant(createdAt, "createdAt"),
+                sortedLines,
+                requestFingerprint,
+                reversalOfLedgerEntryId);
     }
 
     private static LedgerEntryId requireId(LedgerEntryId id) {
@@ -138,6 +170,14 @@ public final class LedgerEntry {
 
     public List<LedgerEntryLine> lines() {
         return lines;
+    }
+
+    public String requestFingerprint() {
+        return requestFingerprint;
+    }
+
+    public LedgerEntryId reversalOfLedgerEntryId() {
+        return reversalOfLedgerEntryId;
     }
 
     public BigDecimal totalDebitAmount() {

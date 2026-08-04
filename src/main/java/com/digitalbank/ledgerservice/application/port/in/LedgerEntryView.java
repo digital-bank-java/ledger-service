@@ -15,6 +15,7 @@ public record LedgerEntryView(
         String currency,
         Instant effectiveAt,
         Instant createdAt,
+        String reversalOfLedgerEntryId,
         BigDecimal totalDebitAmount,
         BigDecimal totalCreditAmount,
         List<LineView> lines) {
@@ -27,6 +28,9 @@ public record LedgerEntryView(
                 ledgerEntry.currency(),
                 ledgerEntry.effectiveAt(),
                 ledgerEntry.createdAt(),
+                ledgerEntry.reversalOfLedgerEntryId() == null
+                        ? null
+                        : ledgerEntry.reversalOfLedgerEntryId().value().toString(),
                 ledgerEntry.totalDebitAmount(),
                 ledgerEntry.totalCreditAmount(),
                 ledgerEntry.lines().stream().map(LineView::fromLedgerEntryLine).toList());
