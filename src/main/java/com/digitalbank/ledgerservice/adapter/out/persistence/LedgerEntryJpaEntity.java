@@ -35,6 +35,12 @@ class LedgerEntryJpaEntity {
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
+    @Column(name = "request_fingerprint", length = 64)
+    private String requestFingerprint;
+
+    @Column(name = "reversal_of_entry_id")
+    private UUID reversalOfEntryId;
+
     @OneToMany(mappedBy = "entry", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("lineNumber ASC")
     private List<LedgerEntryLineJpaEntity> lines = new ArrayList<>();
@@ -47,13 +53,17 @@ class LedgerEntryJpaEntity {
             String description,
             String currency,
             Instant effectiveAt,
-            Instant createdAt) {
+            Instant createdAt,
+            String requestFingerprint,
+            UUID reversalOfEntryId) {
         this.id = id;
         this.postingRequestId = postingRequestId;
         this.description = description;
         this.currency = currency;
         this.effectiveAt = effectiveAt;
         this.createdAt = createdAt;
+        this.requestFingerprint = requestFingerprint;
+        this.reversalOfEntryId = reversalOfEntryId;
     }
 
     void addLine(LedgerEntryLineJpaEntity line) {
@@ -83,6 +93,14 @@ class LedgerEntryJpaEntity {
 
     Instant createdAt() {
         return createdAt;
+    }
+
+    String requestFingerprint() {
+        return requestFingerprint;
+    }
+
+    UUID reversalOfEntryId() {
+        return reversalOfEntryId;
     }
 
     List<LedgerEntryLineJpaEntity> lines() {

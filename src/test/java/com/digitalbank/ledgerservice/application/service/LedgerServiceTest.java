@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.digitalbank.ledgerservice.application.port.in.PostLedgerEntryCommand;
 import com.digitalbank.ledgerservice.application.port.out.LedgerEntryRepository;
-import com.digitalbank.ledgerservice.domain.exception.DuplicatePostingRequestException;
 import com.digitalbank.ledgerservice.domain.exception.UnbalancedLedgerEntryException;
 import com.digitalbank.ledgerservice.domain.model.LedgerEntry;
 import com.digitalbank.ledgerservice.domain.model.LedgerEntryId;
@@ -42,12 +41,14 @@ class LedgerServiceTest {
     }
 
     @Test
-    void rejectsDuplicatePostingRequestId() {
+    void replaysDuplicatePostingRequestId() {
         var command = balancedCommand("ledger-posting-001", new BigDecimal("100.00"), new BigDecimal("100.00"));
-        ledgerService.postLedgerEntry(command);
+        var first = ledgerService.postLedgerEntry(command);
+        var second = ledgerService.postLedgerEntry(command);
 
-        assertThatThrownBy(() -> ledgerService.postLedgerEntry(command))
-                .isInstanceOf(DuplicatePostingRequestException.class);
+        assertThat(second.replay()).isTrue();
+        assertThat(second.ledgerEntryId()).isEqualTo(first.ledgerEntryId());
+        assertThat(repository.entries()).hasSize(1);
     }
 
     @Test
@@ -115,6 +116,13 @@ class LedgerServiceTest {
         @Override
         public boolean existsByPostingRequestId(String postingRequestId) {
             return entries.stream().anyMatch(entry -> entry.postingRequestId().equals(postingRequestId));
+        }
+
+        @Override
+        public Optional<LedgerEntry> findByPostingRequestId(String postingRequestId) {
+            return entries.stream()
+                    .filter(entry -> entry.postingRequestId().equals(postingRequestId))
+                    .findFirst();
         }
 
         List<LedgerEntry> entries() {

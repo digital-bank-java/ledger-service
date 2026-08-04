@@ -6,6 +6,8 @@ Ledger Service owns immutable, balanced financial journal entries for the Digita
 
 - Persist immutable, balanced debit and credit ledger entries.
 - Reject unbalanced entries and conflicting posting-request identifiers.
+- Treat repeated equivalent requests as idempotent replays.
+- Record append-only reversal entries without changing the original posting.
 - Provide internal HTTP APIs for ledger-entry posting and lookup.
 - Expose operational health endpoints.
 - Load environment-specific configuration from Config Server.
@@ -27,6 +29,29 @@ spring.config.import=configserver:${CONFIG_SERVER_URL:http://localhost:8888}
 ```
 
 The configured service port is `8083`. SIT datasource settings and runtime identity are supplied by Config Server from `config-repo`; CI uses an isolated mock Config Server response.
+
+## Internal Ledger Posting Contract
+
+The ledger posting API is internal and is not a customer-facing balance-update API. A posting is accepted only when its debit and credit lines balance.
+
+```http
+POST /internal/v1/ledger-entries
+```
+
+- The first valid request returns `201 Created`.
+- Repeating the same `postingRequestId` with the same normalized payload returns the original entry with `200 OK` and `Idempotent-Replay: true`.
+- Reusing a `postingRequestId` with a different payload returns `409 Conflict` as Problem Details.
+- Database uniqueness and transaction-scoped PostgreSQL advisory locking protect concurrent submissions.
+
+Reversals are new immutable entries that swap the source entry's debit and credit lines:
+
+```http
+POST /internal/v1/ledger-entries/{ledgerEntryId}/reversals
+```
+
+The response contains `reversalOfLedgerEntryId`. The original entry is never updated or deleted. A missing source returns `404 Not Found`; repeated equivalent reversal requests replay the original reversal; conflicting reuse returns `409 Conflict`.
+
+Error responses use `application/problem+json`. The generated internal contract is available at `/v3/api-docs` and includes the posting, replay, reversal, validation, conflict, and not-found responses.
 
 ## Prerequisites
 
@@ -69,7 +94,7 @@ curl --fail http://localhost:8083/actuator/health
 Build the image:
 
 ```bash
-docker build -t digital-bank-java/ledger-service:0.0.1 .
+docker build -t digital-bank-java/ledger-service:0.0.2 .
 ```
 
 Inspect the runtime user:
@@ -77,7 +102,7 @@ Inspect the runtime user:
 ```bash
 docker image inspect \
   --format '{{.Config.User}}' \
-  digital-bank-java/ledger-service:0.0.1
+  digital-bank-java/ledger-service:0.0.2
 ```
 
 Expected value:

@@ -16,7 +16,9 @@ final class LedgerEntryJpaMapper {
                 ledgerEntry.description(),
                 ledgerEntry.currency(),
                 ledgerEntry.effectiveAt(),
-                ledgerEntry.createdAt());
+                ledgerEntry.createdAt(),
+                ledgerEntry.requestFingerprint(),
+                ledgerEntry.reversalOfLedgerEntryId() == null ? null : ledgerEntry.reversalOfLedgerEntryId().value());
 
         var lineNumber = 1;
         for (var line : ledgerEntry.lines()) {
@@ -39,6 +41,8 @@ final class LedgerEntryJpaMapper {
                 entity.currency(),
                 entity.effectiveAt(),
                 entity.createdAt(),
-                lines);
+                lines,
+                entity.requestFingerprint(),
+                entity.reversalOfEntryId() == null ? null : new LedgerEntryId(entity.reversalOfEntryId()));
     }
 }

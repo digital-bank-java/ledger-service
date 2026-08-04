@@ -14,6 +14,7 @@ record LedgerEntryResponse(
         String currency,
         Instant effectiveAt,
         Instant createdAt,
+        String reversalOfLedgerEntryId,
         BigDecimal totalDebitAmount,
         BigDecimal totalCreditAmount,
         List<LineResponse> lines) {
@@ -26,6 +27,7 @@ record LedgerEntryResponse(
                 view.currency(),
                 view.effectiveAt(),
                 view.createdAt(),
+                view.reversalOfLedgerEntryId(),
                 view.totalDebitAmount(),
                 view.totalCreditAmount(),
                 view.lines().stream().map(LineResponse::from).toList());
