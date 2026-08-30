@@ -188,11 +188,12 @@ class LedgerPersistenceIT {
                                 posted.ledgerEntryId()),
                         DataAccessException.class))
                 .isNotNull();
-        assertThat(catchThrowableOfType(
+        var deletionFailure = catchThrowableOfType(
                         () -> jdbcTemplate.update(
                                 "delete from ledger_outbox_events where aggregate_id = ?", posted.ledgerEntryId()),
-                        DataAccessException.class))
-                .isNotNull();
+                        DataAccessException.class);
+        assertThat(deletionFailure)
+                .hasMessageContaining("ledger outbox events are append-only and cannot be deleted");
     }
 
     @Test

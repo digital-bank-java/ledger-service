@@ -3,6 +3,10 @@ returns trigger
 language plpgsql
 as $$
 begin
+    if tg_op = 'DELETE' then
+        raise exception 'ledger outbox events are append-only and cannot be deleted';
+    end if;
+
     if new.event_id is distinct from old.event_id
         or new.event_type is distinct from old.event_type
         or new.aggregate_id is distinct from old.aggregate_id
