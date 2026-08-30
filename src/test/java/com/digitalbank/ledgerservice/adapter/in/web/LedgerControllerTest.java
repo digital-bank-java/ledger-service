@@ -67,6 +67,16 @@ class LedgerControllerTest {
                 .andExpect(status().isBadRequest());
     }
 
+    @Test
+    void rejectsAmountsWithMoreThanFourDecimalPlaces() throws Exception {
+        mockMvc.perform(post("/internal/v1/ledger-entries")
+                        .header("X-Correlation-Id", "correlation-controller-test")
+                        .header("X-Causation-Id", "causation-controller-test")
+                        .contentType("application/json")
+                        .content(validPostingJson().replace("100.00", "100.00001")))
+                .andExpect(status().isBadRequest());
+    }
+
     private static String validPostingJson() {
         return """
                 {

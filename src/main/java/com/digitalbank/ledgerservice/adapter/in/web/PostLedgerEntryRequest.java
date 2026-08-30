@@ -2,6 +2,7 @@ package com.digitalbank.ledgerservice.adapter.in.web;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
@@ -19,5 +20,7 @@ record PostLedgerEntryRequest(
         @NotEmpty List<@Valid LineRequest> debitLines,
         @NotEmpty List<@Valid LineRequest> creditLines) {
 
-    record LineRequest(@NotNull UUID accountId, @NotNull @DecimalMin("0.0001") BigDecimal amount) {}
+    record LineRequest(
+            @NotNull UUID accountId,
+            @NotNull @DecimalMin("0.0001") @Digits(integer = 15, fraction = 4) BigDecimal amount) {}
 }

@@ -69,6 +69,17 @@ class LedgerServiceTest {
     }
 
     @Test
+    void rejectsAmountsWithMoreThanFourDecimalPlaces() {
+        var command = balancedCommand("ledger-posting-precision", new BigDecimal("100.00001"), new BigDecimal("100.00001"));
+
+        assertThatThrownBy(() -> ledgerService.postLedgerEntry(command))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("amount must have no more than 4 decimal places");
+        assertThat(repository.entries()).isEmpty();
+        assertThat(publisher.completed()).isEmpty();
+    }
+
+    @Test
     void treatsDebitAndCreditBucketsAsTheSourceOfLineType() {
         var debitAccountId = UUID.randomUUID();
         var creditAccountId = UUID.randomUUID();
