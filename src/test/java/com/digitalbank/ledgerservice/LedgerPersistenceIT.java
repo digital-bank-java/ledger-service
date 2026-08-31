@@ -4,14 +4,19 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
 import com.digitalbank.ledgerservice.application.port.in.PostLedgerEntryCommand;
+import com.digitalbank.ledgerservice.application.port.in.RecordLedgerPostingFailureCommand;
+import com.digitalbank.ledgerservice.application.port.in.RecordLedgerPostingFailureInputPort;
 import com.digitalbank.ledgerservice.application.port.out.LedgerEntryRepository;
 import com.digitalbank.ledgerservice.application.port.out.LedgerEventPublisher;
+import com.digitalbank.ledgerservice.application.port.out.LedgerOutboxDeliveryRepository;
 import com.digitalbank.ledgerservice.application.service.LedgerService;
 import com.digitalbank.ledgerservice.domain.model.LedgerEntry;
 import com.digitalbank.ledgerservice.domain.model.LedgerEntryId;
+import com.digitalbank.ledgerservice.domain.model.LedgerPostingFailureDecision;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -50,6 +55,12 @@ class LedgerPersistenceIT {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private RecordLedgerPostingFailureInputPort failureDecisionInputPort;
+
+    @Autowired
+    private LedgerOutboxDeliveryRepository outboxDeliveryRepository;
 
     @Test
     void postsAndLoadsLedgerEntry() throws Exception {
@@ -96,11 +107,112 @@ class LedgerPersistenceIT {
         assertThat(payload.path("postingRequestId").asText()).isEqualTo("ledger-posting-001");
         assertThat(payload.path("occurredAt").asText()).isEqualTo(FIXED_NOW.toString());
         assertThat(payload.has("reversalOfLedgerEntryId")).isFalse();
+        assertThat(payload.has("transactionId")).isFalse();
+        assertThat(payload.has("reservationRequestId")).isFalse();
         assertThat(payload.path("lines")).hasSize(2);
         assertThat(payload.path("lines").findValuesAsText("lineType"))
                 .containsExactly("DEBIT", "CREDIT");
         assertThat(payload.path("lines").findValuesAsText("amount"))
                 .containsExactly("125.50", "125.50");
+    }
+
+    @Test
+    void persistsProvidedTransactionMetadataWithoutSynthesizingLegacyValues() throws Exception {
+        var posted = ledgerService.postLedgerEntry(new PostLedgerEntryCommand(
+                "ledger-posting-transaction-metadata",
+                "Transaction metadata posting",
+                "AED",
+                Instant.parse("2026-07-03T09:00:00Z"),
+                List.of(new PostLedgerEntryCommand.Line(UUID.randomUUID(), new BigDecimal("10.00"))),
+                List.of(new PostLedgerEntryCommand.Line(UUID.randomUUID(), new BigDecimal("10.00"))),
+                "correlation-transaction-metadata",
+                "causation-transaction-metadata",
+                "transaction-001",
+                "reservation-001"));
+
+        var outbox = jdbcTemplate.queryForMap(
+                "select transaction_id, reservation_request_id, payload::text from ledger_outbox_events where aggregate_id = ?",
+                posted.ledgerEntryId());
+        var payload = objectMapper.readTree(String.valueOf(outbox.get("payload")));
+
+        assertThat(outbox)
+                .containsEntry("transaction_id", "transaction-001")
+                .containsEntry("reservation_request_id", "reservation-001");
+        assertThat(payload.path("transactionId").asText()).isEqualTo("transaction-001");
+        assertThat(payload.path("reservationRequestId").asText()).isEqualTo("reservation-001");
+        assertThat(payload.path("schemaVersion").asText()).isEqualTo("1.0.0");
+        assertThat(payload.path("producer").asText()).isEqualTo("ledger-service");
+    }
+
+    @Test
+    void persistsTerminalFailureDecisionAndMatchingFailureOutboxEventAtomically() throws Exception {
+        var decision = failureDecisionInputPort.recordFailure(new RecordLedgerPostingFailureCommand(
+                "ledger-posting-terminal-failure",
+                "ACCOUNTING_ERROR",
+                "Durable accounting decision rejected the posting",
+                "correlation-terminal-failure",
+                "causation-terminal-failure",
+                "transaction-terminal-failure",
+                "reservation-terminal-failure"));
+
+        var outbox = jdbcTemplate.queryForMap(
+                "select event_id, decision_id, event_type, transaction_id, reservation_request_id, payload::text "
+                        + "from ledger_outbox_events where event_id = ?",
+                decision.eventId());
+
+        assertThat(jdbcTemplate.queryForObject(
+                        "select count(*) from ledger_posting_failure_decisions where decision_id = ?",
+                        Integer.class,
+                        decision.decisionId()))
+                .isEqualTo(1);
+        assertThat(outbox)
+                .containsEntry("event_id", decision.eventId())
+                .containsEntry("decision_id", decision.decisionId())
+                .containsEntry("event_type", "LedgerPostingFailed.v1")
+                .containsEntry("transaction_id", "transaction-terminal-failure")
+                .containsEntry("reservation_request_id", "reservation-terminal-failure");
+        var payload = objectMapper.readTree(String.valueOf(outbox.get("payload")));
+        assertThat(payload.path("eventId").asText()).isEqualTo(decision.eventId().toString());
+        assertThat(payload.path("failureCode").asText()).isEqualTo("ACCOUNTING_ERROR");
+    }
+
+    @Test
+    void persistsLeaseRetryAndQuarantineWithTheSameEventIdentity() {
+        var posted = ledgerService.postLedgerEntry(new PostLedgerEntryCommand(
+                "ledger-posting-delivery-state",
+                "Delivery lifecycle posting",
+                "AED",
+                Instant.parse("2026-07-03T09:00:00Z"),
+                List.of(new PostLedgerEntryCommand.Line(UUID.randomUUID(), new BigDecimal("10.00"))),
+                List.of(new PostLedgerEntryCommand.Line(UUID.randomUUID(), new BigDecimal("10.00"))),
+                "correlation-delivery-state",
+                "causation-delivery-state"));
+        var eventId = jdbcTemplate.queryForObject(
+                "select event_id from ledger_outbox_events where aggregate_id = ?", UUID.class, posted.ledgerEntryId());
+        var initialTime = Instant.parse("2030-01-01T00:00:00Z");
+
+        var firstClaim = outboxDeliveryRepository.claimAvailable(initialTime, 100, Duration.ofMinutes(1)).stream()
+                .filter(event -> event.eventId().equals(eventId))
+                .findFirst()
+                .orElseThrow();
+        outboxDeliveryRepository.markRetry(firstClaim, initialTime.plusSeconds(5), "broker unavailable");
+        var secondClaim = outboxDeliveryRepository
+                .claimAvailable(initialTime.plusSeconds(5), 100, Duration.ofMinutes(1))
+                .stream()
+                .filter(event -> event.eventId().equals(eventId))
+                .findFirst()
+                .orElseThrow();
+        outboxDeliveryRepository.markQuarantined(secondClaim, initialTime.plusSeconds(6), "broker unavailable");
+
+        var row = jdbcTemplate.queryForMap(
+                "select event_id, status, attempts, last_error, quarantined_at from ledger_outbox_events where event_id = ?",
+                eventId);
+        assertThat(row)
+                .containsEntry("event_id", eventId)
+                .containsEntry("status", "QUARANTINED")
+                .containsEntry("attempts", 2)
+                .containsEntry("last_error", "broker unavailable");
+        assertThat(row.get("quarantined_at")).isNotNull();
     }
 
     @Test
@@ -272,6 +384,34 @@ class LedgerPersistenceIT {
                 .isZero();
     }
 
+    @Test
+    void publisherFailureRollsBackFailureDecisionAndFailureOutboxEvent() {
+        failingPublisher.failAfterRecording();
+        var postingRequestId = "ledger-posting-failure-decision-rollback";
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> failureDecisionInputPort.recordFailure(
+                        new RecordLedgerPostingFailureCommand(
+                                postingRequestId,
+                                "ACCOUNTING_ERROR",
+                                "Durable accounting rule rejected the posting",
+                                "correlation-failure-decision-rollback",
+                                "causation-failure-decision-rollback",
+                                "transaction-failure-decision-rollback",
+                                "reservation-failure-decision-rollback")))
+                .isInstanceOf(IllegalStateException.class);
+
+        assertThat(jdbcTemplate.queryForObject(
+                        "select count(*) from ledger_posting_failure_decisions where posting_request_id = ?",
+                        Integer.class,
+                        postingRequestId))
+                .isZero();
+        assertThat(jdbcTemplate.queryForObject(
+                        "select count(*) from ledger_outbox_events where posting_request_id = ? and event_type = 'LedgerPostingFailed.v1'",
+                        Integer.class,
+                        postingRequestId))
+                .isZero();
+    }
+
     @TestConfiguration
     static class FixedClockConfiguration {
 
@@ -311,24 +451,31 @@ class LedgerPersistenceIT {
                 UUID reversalOfLedgerEntryId,
                 String correlationId,
                 String causationId,
+                String transactionId,
+                String reservationRequestId,
                 Instant occurredAt) {
-            delegate.recordPostingCompleted(entry, reversalOfLedgerEntryId, correlationId, causationId, occurredAt);
+            delegate.recordPostingCompleted(
+                    entry,
+                    reversalOfLedgerEntryId,
+                    correlationId,
+                    causationId,
+                    transactionId,
+                    reservationRequestId,
+                    occurredAt);
+            failIfConfigured();
+        }
+
+        @Override
+        public void recordPostingFailed(LedgerPostingFailureDecision decision) {
+            delegate.recordPostingFailed(decision);
+            failIfConfigured();
+        }
+
+        private void failIfConfigured() {
             if (fail) {
                 fail = false;
                 throw new IllegalStateException("forced publisher failure");
             }
-        }
-
-        @Override
-        public void recordPostingFailed(
-                String postingRequestId,
-                String failureCode,
-                String failureReason,
-                String correlationId,
-                String causationId,
-                Instant occurredAt) {
-            delegate.recordPostingFailed(
-                    postingRequestId, failureCode, failureReason, correlationId, causationId, occurredAt);
         }
     }
 }

@@ -29,7 +29,7 @@ class LedgerControllerTest {
             .build();
 
     @Test
-    void mapsCorrelationAndCausationHeadersIntoPostingCommand() throws Exception {
+    void mapsEventMetadataIntoPostingCommand() throws Exception {
         mockMvc.perform(post("/internal/v1/ledger-entries")
                         .header("X-Correlation-Id", "correlation-controller-test")
                         .header("X-Causation-Id", "causation-controller-test")
@@ -38,7 +38,11 @@ class LedgerControllerTest {
                 .andExpect(status().isCreated());
 
         assertThat(postingPort.command.toString())
-                .contains("correlation-controller-test", "causation-controller-test");
+                .contains(
+                        "correlation-controller-test",
+                        "causation-controller-test",
+                        "transaction-controller-test",
+                        "reservation-controller-test");
     }
 
     @Test
@@ -84,6 +88,8 @@ class LedgerControllerTest {
                   "description": "Controller posting",
                   "currency": "AED",
                   "effectiveAt": "2026-07-03T09:00:00Z",
+                  "transactionId": "transaction-controller-test",
+                  "reservationRequestId": "reservation-controller-test",
                   "debitLines": [{"accountId": "%s", "amount": 100.00}],
                   "creditLines": [{"accountId": "%s", "amount": 100.00}]
                 }

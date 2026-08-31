@@ -11,6 +11,7 @@ import com.digitalbank.ledgerservice.domain.exception.UnbalancedLedgerEntryExcep
 import com.digitalbank.ledgerservice.domain.model.LedgerEntry;
 import com.digitalbank.ledgerservice.domain.model.LedgerEntryId;
 import com.digitalbank.ledgerservice.domain.model.LedgerLineType;
+import com.digitalbank.ledgerservice.domain.model.LedgerPostingFailureDecision;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
@@ -66,6 +67,7 @@ class LedgerServiceTest {
         assertThatThrownBy(() -> ledgerService.postLedgerEntry(command))
                 .isInstanceOf(UnbalancedLedgerEntryException.class)
                 .hasMessageContaining("total debit amount must equal total credit amount");
+        assertThat(publisher.failed()).isEmpty();
     }
 
     @Test
@@ -143,6 +145,7 @@ class LedgerServiceTest {
     private static final class RecordingLedgerEventPublisher implements LedgerEventPublisher {
 
         private final List<CompletedCall> completed = new ArrayList<>();
+        private final List<LedgerPostingFailureDecision> failed = new ArrayList<>();
 
         @Override
         public void recordPostingCompleted(
@@ -150,21 +153,30 @@ class LedgerServiceTest {
                 UUID reversalOfLedgerEntryId,
                 String correlationId,
                 String causationId,
+                String transactionId,
+                String reservationRequestId,
                 Instant occurredAt) {
-            completed.add(new CompletedCall(entry, reversalOfLedgerEntryId, correlationId, causationId, occurredAt));
+            completed.add(new CompletedCall(
+                    entry,
+                    reversalOfLedgerEntryId,
+                    correlationId,
+                    causationId,
+                    transactionId,
+                    reservationRequestId,
+                    occurredAt));
         }
 
         @Override
-        public void recordPostingFailed(
-                String postingRequestId,
-                String failureCode,
-                String failureReason,
-                String correlationId,
-                String causationId,
-                Instant occurredAt) {}
+        public void recordPostingFailed(LedgerPostingFailureDecision decision) {
+            failed.add(decision);
+        }
 
         List<CompletedCall> completed() {
             return List.copyOf(completed);
+        }
+
+        List<LedgerPostingFailureDecision> failed() {
+            return List.copyOf(failed);
         }
     }
 
@@ -173,6 +185,8 @@ class LedgerServiceTest {
             UUID reversalOfLedgerEntryId,
             String correlationId,
             String causationId,
+            String transactionId,
+            String reservationRequestId,
             Instant occurredAt) {}
 
     private static final class InMemoryLedgerEntryRepository implements LedgerEntryRepository {

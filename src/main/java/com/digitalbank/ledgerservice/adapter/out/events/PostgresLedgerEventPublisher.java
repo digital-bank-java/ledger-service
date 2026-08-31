@@ -4,6 +4,7 @@ import com.digitalbank.ledgerservice.application.port.out.LedgerEventPublisher;
 import com.digitalbank.ledgerservice.domain.model.LedgerEntry;
 import com.digitalbank.ledgerservice.domain.model.LedgerEntryLine;
 import com.digitalbank.ledgerservice.domain.model.LedgerLineType;
+import com.digitalbank.ledgerservice.domain.model.LedgerPostingFailureDecision;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -19,6 +20,8 @@ class PostgresLedgerEventPublisher implements LedgerEventPublisher {
     private static final String COMPLETED_EVENT_TYPE = "LedgerPostingCompleted.v1";
     private static final String FAILED_EVENT_TYPE = "LedgerPostingFailed.v1";
     private static final String PENDING_STATUS = "PENDING";
+    private static final String SCHEMA_VERSION = "1.0.0";
+    private static final String PRODUCER = "ledger-service";
 
     private final SpringDataLedgerOutboxEventRepository repository;
     private final ObjectMapper objectMapper = new ObjectMapper()
@@ -35,15 +38,21 @@ class PostgresLedgerEventPublisher implements LedgerEventPublisher {
             UUID reversalOfLedgerEntryId,
             String correlationId,
             String causationId,
+            String transactionId,
+            String reservationRequestId,
             Instant occurredAt) {
         var eventId = UUID.randomUUID();
         var payload = new CompletedPayload(
                 eventId,
                 COMPLETED_EVENT_TYPE,
+                SCHEMA_VERSION,
+                PRODUCER,
                 occurredAt,
                 entry.id().value(),
                 correlationId,
                 causationId,
+                transactionId,
+                reservationRequestId,
                 entry.id().value(),
                 entry.postingRequestId(),
                 reversalOfLedgerEntryId,
@@ -56,38 +65,41 @@ class PostgresLedgerEventPublisher implements LedgerEventPublisher {
                 entry.postingRequestId(),
                 correlationId,
                 causationId,
+                transactionId,
+                reservationRequestId,
+                null,
                 payload,
                 occurredAt);
     }
 
     @Override
-    public void recordPostingFailed(
-            String postingRequestId,
-            String failureCode,
-            String failureReason,
-            String correlationId,
-            String causationId,
-            Instant occurredAt) {
-        var eventId = UUID.randomUUID();
+    public void recordPostingFailed(LedgerPostingFailureDecision decision) {
         var payload = new FailedPayload(
-                eventId,
+                decision.eventId(),
                 FAILED_EVENT_TYPE,
-                occurredAt,
-                postingRequestId,
-                correlationId,
-                causationId,
-                postingRequestId,
-                failureCode,
-                failureReason);
+                SCHEMA_VERSION,
+                PRODUCER,
+                decision.occurredAt(),
+                decision.postingRequestId(),
+                decision.correlationId(),
+                decision.causationId(),
+                decision.transactionId(),
+                decision.reservationRequestId(),
+                decision.postingRequestId(),
+                decision.failureCode(),
+                decision.failureReason());
         save(
-                eventId,
+                decision.eventId(),
                 FAILED_EVENT_TYPE,
-                postingRequestId,
-                postingRequestId,
-                correlationId,
-                causationId,
+                decision.postingRequestId(),
+                decision.postingRequestId(),
+                decision.correlationId(),
+                decision.causationId(),
+                decision.transactionId(),
+                decision.reservationRequestId(),
+                decision.decisionId(),
                 payload,
-                occurredAt);
+                decision.occurredAt());
     }
 
     private void save(
@@ -97,6 +109,9 @@ class PostgresLedgerEventPublisher implements LedgerEventPublisher {
             String postingRequestId,
             String correlationId,
             String causationId,
+            String transactionId,
+            String reservationRequestId,
+            UUID decisionId,
             Object payload,
             Instant occurredAt) {
         try {
@@ -107,6 +122,9 @@ class PostgresLedgerEventPublisher implements LedgerEventPublisher {
                     postingRequestId,
                     correlationId,
                     causationId,
+                    transactionId,
+                    reservationRequestId,
+                    decisionId,
                     objectMapper.writeValueAsString(payload),
                     PENDING_STATUS,
                     0,
@@ -125,23 +143,32 @@ class PostgresLedgerEventPublisher implements LedgerEventPublisher {
     private record CompletedPayload(
             UUID eventId,
             String eventType,
+            String schemaVersion,
+            String producer,
             Instant occurredAt,
             UUID aggregateId,
             String correlationId,
             String causationId,
+            String transactionId,
+            String reservationRequestId,
             UUID postingId,
             String postingRequestId,
             UUID reversalOfLedgerEntryId,
             String currency,
             List<PayloadLine> lines) {}
 
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     private record FailedPayload(
             UUID eventId,
             String eventType,
+            String schemaVersion,
+            String producer,
             Instant occurredAt,
             String aggregateId,
             String correlationId,
             String causationId,
+            String transactionId,
+            String reservationRequestId,
             String postingRequestId,
             String failureCode,
             String failureReason) {}

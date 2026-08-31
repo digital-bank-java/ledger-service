@@ -65,7 +65,13 @@ public class LedgerService implements PostLedgerEntryInputPort, GetLedgerEntryIn
 
         var savedEntry = ledgerEntryRepository.save(ledgerEntry);
         ledgerEventPublisher.recordPostingCompleted(
-                savedEntry, null, command.correlationId(), command.causationId(), savedEntry.createdAt());
+                savedEntry,
+                null,
+                command.correlationId(),
+                command.causationId(),
+                command.transactionId(),
+                command.reservationRequestId(),
+                savedEntry.createdAt());
         return new PostingResult(LedgerEntryView.fromLedgerEntry(savedEntry), false);
     }
 
@@ -109,6 +115,8 @@ public class LedgerService implements PostLedgerEntryInputPort, GetLedgerEntryIn
                 sourceId.value(),
                 command.correlationId(),
                 command.causationId(),
+                command.transactionId(),
+                command.reservationRequestId(),
                 savedReversal.createdAt());
         return new PostingResult(LedgerEntryView.fromLedgerEntry(savedReversal), false);
     }

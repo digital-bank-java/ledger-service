@@ -155,7 +155,9 @@ class LedgerController {
                         .map(line -> new PostLedgerEntryCommand.Line(line.accountId(), line.amount()))
                         .toList(),
                 correlationId,
-                causationId));
+                causationId,
+                request.transactionId(),
+                request.reservationRequestId()));
 
         var response = LedgerEntryResponse.from(result.entry());
         var status = result.replay() ? HttpStatus.OK : HttpStatus.CREATED;
@@ -214,7 +216,9 @@ class LedgerController {
                 request.description(),
                 request.effectiveAt(),
                 correlationId,
-                causationId));
+                causationId,
+                request.transactionId(),
+                request.reservationRequestId()));
         var response = LedgerEntryResponse.from(result.entry());
         var status = result.replay() ? HttpStatus.OK : HttpStatus.CREATED;
         var builder = ResponseEntity.status(status);
