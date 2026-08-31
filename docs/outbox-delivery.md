@@ -29,11 +29,15 @@ ledger.outbox.delivery.max-attempts=5
 ledger.outbox.delivery.lease-duration=PT1M
 ledger.outbox.delivery.retry-delay=PT5S
 ledger.outbox.delivery.poll-delay=PT5S
+ledger.outbox.delivery.publish-timeout=PT10S
 ```
 
 The Kafka key is `aggregateId`. Ordering is guaranteed only for equal keys on
 the same topic. It is not guaranteed across `ledger.posting.completed.v1` and
 `ledger.posting.failed.v1`.
+The Kafka producer acknowledgement wait is bounded by `publish-timeout`; timeout
+or send failure is surfaced to the delivery worker so it can retry or quarantine
+the immutable outbox row.
 
 ## Monitoring And Recovery
 

@@ -71,6 +71,27 @@ class LedgerServiceTest {
     }
 
     @Test
+    void requiresGovernedIdentifiersBeforePostingLedgerEvent() {
+        var command = new PostLedgerEntryCommand(
+                "ledger-posting-missing-transaction",
+                "Settlement posting",
+                "AED",
+                Instant.parse("2026-07-03T09:00:00Z"),
+                List.of(new PostLedgerEntryCommand.Line(UUID.randomUUID(), new BigDecimal("100.00"))),
+                List.of(new PostLedgerEntryCommand.Line(UUID.randomUUID(), new BigDecimal("100.00"))),
+                "correlation-test",
+                "causation-test",
+                null,
+                "reservation-test");
+
+        assertThatThrownBy(() -> ledgerService.postLedgerEntry(command))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("transactionId is required");
+        assertThat(repository.entries()).isEmpty();
+        assertThat(publisher.completed()).isEmpty();
+    }
+
+    @Test
     void rejectsAmountsWithMoreThanFourDecimalPlaces() {
         var command = balancedCommand("ledger-posting-precision", new BigDecimal("100.00001"), new BigDecimal("100.00001"));
 
@@ -93,7 +114,9 @@ class LedgerServiceTest {
                 List.of(new PostLedgerEntryCommand.Line(debitAccountId, new BigDecimal("100.00"))),
                 List.of(new PostLedgerEntryCommand.Line(creditAccountId, new BigDecimal("100.00"))),
                 "correlation-test",
-                "causation-test");
+                "causation-test",
+                "transaction-test",
+                "reservation-test");
 
         var view = ledgerService.postLedgerEntry(command);
 
@@ -119,7 +142,9 @@ class LedgerServiceTest {
                 "Reverse posting",
                 Instant.parse("2026-07-03T11:00:00Z"),
                 "correlation-reversal-test",
-                "causation-reversal-test"));
+                "causation-reversal-test",
+                "transaction-reversal-test",
+                "reservation-reversal-test"));
 
         assertThat(reversal.replay()).isFalse();
         assertThat(publisher.completed()).hasSize(2);
@@ -139,7 +164,9 @@ class LedgerServiceTest {
                 List.of(new PostLedgerEntryCommand.Line(UUID.randomUUID(), debitAmount)),
                 List.of(new PostLedgerEntryCommand.Line(UUID.randomUUID(), creditAmount)),
                 "correlation-test",
-                "causation-test");
+                "causation-test",
+                "transaction-test",
+                "reservation-test");
     }
 
     private static final class RecordingLedgerEventPublisher implements LedgerEventPublisher {

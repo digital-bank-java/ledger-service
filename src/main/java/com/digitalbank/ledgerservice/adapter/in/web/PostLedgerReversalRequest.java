@@ -8,5 +8,5 @@ record PostLedgerReversalRequest(
         @NotBlank String postingRequestId,
         @NotBlank String description,
         @NotNull Instant effectiveAt,
-        String transactionId,
-        String reservationRequestId) {}
+        @NotBlank String transactionId,
+        @NotBlank String reservationRequestId) {}

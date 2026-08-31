@@ -10,18 +10,15 @@ and follows the [governed event contract](https://github.com/digital-bank-java/.
 
 ## Compatibility
 
-`transactionId` and `reservationRequestId` are additive, nullable request
-fields. A caller that provides them has both values carried through the posting
-command, outbox row, and payload. Existing direct ledger callers that do not
-have a business transaction continue to post successfully; the outbox record
-and payload omit these values. The service never derives either identifier from
-the correlation ID, posting request ID, or a generated value.
+`transactionId` and `reservationRequestId` are required request fields for
+posting, reversal, and durable failure-decision inputs that create governed
+ledger events. Both values are carried through the command, outbox row, and
+payload. The service never derives either identifier from the correlation ID,
+posting request ID, or a generated value.
 
-The governed AsyncAPI schema requires both identifiers for saga-managed events.
-Consequently, legacy direct-post events remain backward-compatible ledger facts
-but are not eligible for saga settlement/release until their producer supplies
-the governed identifiers. This limitation is explicit rather than fabricating a
-transaction identifier.
+The governed AsyncAPI schema requires both identifiers, so event-producing
+ledger inputs reject missing values before committing a durable ledger decision.
+This is explicit rather than fabricating a transaction identifier.
 
 ## Ledger Decisions
 

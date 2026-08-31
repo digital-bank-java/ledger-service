@@ -157,10 +157,9 @@ ordering applies per aggregate within a single topic only. See
 [outbox delivery operations](docs/outbox-delivery.md) for the state machine,
 configuration, monitoring query, and explicit replay procedure.
 
-`transactionId` and `reservationRequestId` are optional additive fields on
-internal posting and reversal requests. When present, they are persisted and
-included in event payloads. Legacy direct callers remain accepted and their
-events omit these identifiers; the service never derives synthetic values from
+`transactionId` and `reservationRequestId` are required on internal posting and
+reversal requests that create governed ledger events. They are persisted and
+included in event payloads. The service never derives synthetic values from
 correlation IDs or posting request IDs.
 
 `LedgerPostingFailed.v1` is recorded only through the internal durable

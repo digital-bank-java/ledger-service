@@ -12,9 +12,9 @@
 
 ## Global Constraints
 
-- Target branch is `feature/101-ledger-events`; never modify or merge `main`.
+- Target branch is `feature/170-ledger-outbox-delivery`; never modify or merge `main`.
 - Ledger entries and event identity/payload are append-only.
-- Legacy posting callers remain valid; `transactionId` and `reservationRequestId` are nullable and never synthesized.
+- Event-producing posting callers must provide `transactionId` and `reservationRequestId`; the service never synthesizes them.
 - A failed event is emitted only after an append-only failure decision is durable.
 - Delivery is at-least-once and retries retain the persisted `eventId`.
 - Kafka key is `aggregateId`; ordering is per key and topic only.
@@ -28,7 +28,7 @@
 - Create: failure-decision input port/command and Flyway migration V6
 - Test: `LedgerServiceTest`, `LedgerControllerTest`, `LedgerPersistenceIT`
 
-- [x] **Step 1: Write failing tests** for nullable transaction/reservation metadata propagation, legacy omission, a durable failed decision producing one outbox row, and unbalanced input producing no failed event.
+- [x] **Step 1: Write failing tests** for required transaction/reservation metadata propagation, a durable failed decision producing one outbox row, and unbalanced input producing no failed event.
 - [x] **Step 2: Run targeted tests** and confirm they fail because the command, port, and schema do not support the behavior.
 - [x] **Step 3: Implement the minimum command/request, failure-decision, publisher, and migration changes.**
 - [x] **Step 4: Run targeted unit and PostgreSQL tests** and confirm success.
@@ -64,4 +64,4 @@
 - [x] **Step 1: Run `./mvnw verify`** with Docker-enabled Testcontainers.
 - [x] **Step 2: Run `helm lint helm --strict` and render the chart with SIT values.**
 - [x] **Step 3: Build the container image and inspect the diff for secrets and unintended changes.**
-- [ ] **Step 4: Run `git diff --check`, commit with a conventional message, push, and open a non-draft PR targeting `feature/101-ledger-events`.**
+- [ ] **Step 4: Run `git diff --check` and commit with a conventional message. Do not push from this follow-up fix branch.**

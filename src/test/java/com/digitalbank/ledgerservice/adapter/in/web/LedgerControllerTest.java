@@ -56,6 +56,20 @@ class LedgerControllerTest {
     }
 
     @Test
+    void rejectsPostingWithoutGovernedEventIdentifiers() throws Exception {
+        mockMvc.perform(post("/internal/v1/ledger-entries")
+                        .header("X-Correlation-Id", "correlation-controller-test")
+                        .header("X-Causation-Id", "causation-controller-test")
+                        .contentType("application/json")
+                        .content(validPostingJson()
+                                .replace("\"transactionId\": \"transaction-controller-test\",\n", "")
+                                .replace("\"reservationRequestId\": \"reservation-controller-test\",\n", "")))
+                .andExpect(status().isBadRequest());
+
+        assertThat(postingPort.command).isNull();
+    }
+
+    @Test
     void rejectsBlankCausationHeaderOnReversal() throws Exception {
         mockMvc.perform(post("/internal/v1/ledger-entries/" + UUID.randomUUID() + "/reversals")
                         .header("X-Correlation-Id", "correlation-controller-test")
@@ -65,7 +79,9 @@ class LedgerControllerTest {
                                 {
                                   "postingRequestId": "controller-reversal-001",
                                   "description": "Controller reversal",
-                                  "effectiveAt": "2026-07-03T09:00:00Z"
+                                  "effectiveAt": "2026-07-03T09:00:00Z",
+                                  "transactionId": "transaction-controller-reversal-test",
+                                  "reservationRequestId": "reservation-controller-reversal-test"
                                 }
                                 """))
                 .andExpect(status().isBadRequest());

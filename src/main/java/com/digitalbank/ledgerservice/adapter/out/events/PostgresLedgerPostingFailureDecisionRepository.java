@@ -2,6 +2,7 @@ package com.digitalbank.ledgerservice.adapter.out.events;
 
 import com.digitalbank.ledgerservice.application.port.out.LedgerPostingFailureDecisionRepository;
 import com.digitalbank.ledgerservice.domain.model.LedgerPostingFailureDecision;
+import java.util.Optional;
 import org.springframework.stereotype.Repository;
 
 @Repository
@@ -11,6 +12,11 @@ class PostgresLedgerPostingFailureDecisionRepository implements LedgerPostingFai
 
     PostgresLedgerPostingFailureDecisionRepository(SpringDataLedgerPostingFailureDecisionRepository repository) {
         this.repository = repository;
+    }
+
+    @Override
+    public Optional<LedgerPostingFailureDecision> findByPostingRequestId(String postingRequestId) {
+        return repository.findByPostingRequestId(postingRequestId).map(LedgerPostingFailureDecisionJpaEntity::toDomain);
     }
 
     @Override

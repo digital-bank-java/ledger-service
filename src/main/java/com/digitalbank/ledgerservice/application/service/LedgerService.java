@@ -38,6 +38,8 @@ public class LedgerService implements PostLedgerEntryInputPort, GetLedgerEntryIn
     @Override
     @Transactional
     public PostingResult postLedgerEntry(PostLedgerEntryCommand command) {
+        var transactionId = requireText(command.transactionId(), "transactionId");
+        var reservationRequestId = requireText(command.reservationRequestId(), "reservationRequestId");
         var lines = new ArrayList<LedgerEntryLine>();
         command.debitLines()
                 .forEach(line -> lines.add(new LedgerEntryLine(line.accountId(), LedgerLineType.DEBIT, line.amount())));
@@ -69,8 +71,8 @@ public class LedgerService implements PostLedgerEntryInputPort, GetLedgerEntryIn
                 null,
                 command.correlationId(),
                 command.causationId(),
-                command.transactionId(),
-                command.reservationRequestId(),
+                transactionId,
+                reservationRequestId,
                 savedEntry.createdAt());
         return new PostingResult(LedgerEntryView.fromLedgerEntry(savedEntry), false);
     }
@@ -78,6 +80,8 @@ public class LedgerService implements PostLedgerEntryInputPort, GetLedgerEntryIn
     @Override
     @Transactional
     public PostingResult reverseLedgerEntry(PostLedgerReversalCommand command) {
+        var transactionId = requireText(command.transactionId(), "transactionId");
+        var reservationRequestId = requireText(command.reservationRequestId(), "reservationRequestId");
         var sourceId = new LedgerEntryId(command.sourceLedgerEntryId());
         var source = ledgerEntryRepository
                 .findById(sourceId)
@@ -115,8 +119,8 @@ public class LedgerService implements PostLedgerEntryInputPort, GetLedgerEntryIn
                 sourceId.value(),
                 command.correlationId(),
                 command.causationId(),
-                command.transactionId(),
-                command.reservationRequestId(),
+                transactionId,
+                reservationRequestId,
                 savedReversal.createdAt());
         return new PostingResult(LedgerEntryView.fromLedgerEntry(savedReversal), false);
     }
@@ -130,6 +134,13 @@ public class LedgerService implements PostLedgerEntryInputPort, GetLedgerEntryIn
             throw new DuplicatePostingRequestException(postingRequestId);
         }
         return new PostingResult(LedgerEntryView.fromLedgerEntry(existing), true);
+    }
+
+    private static String requireText(String value, String field) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException(field + " is required");
+        }
+        return value.trim();
     }
 
     @Override

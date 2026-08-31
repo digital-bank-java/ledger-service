@@ -1,5 +1,6 @@
 package com.digitalbank.ledgerservice.adapter.out.events;
 
+import com.digitalbank.ledgerservice.domain.model.LedgerPostingFailureDecision;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
@@ -65,5 +66,19 @@ class LedgerPostingFailureDecisionJpaEntity {
         this.transactionId = transactionId;
         this.reservationRequestId = reservationRequestId;
         this.occurredAt = occurredAt;
+    }
+
+    LedgerPostingFailureDecision toDomain() {
+        return new LedgerPostingFailureDecision(
+                decisionId,
+                eventId,
+                postingRequestId,
+                failureCode,
+                failureReason,
+                correlationId,
+                causationId,
+                transactionId,
+                reservationRequestId,
+                occurredAt);
     }
 }

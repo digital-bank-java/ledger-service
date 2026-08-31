@@ -75,7 +75,9 @@ class LedgerPersistenceIT {
                 List.of(new PostLedgerEntryCommand.Line(debitAccountId, new BigDecimal("125.50"))),
                 List.of(new PostLedgerEntryCommand.Line(creditAccountId, new BigDecimal("125.50"))),
                 "correlation-persistence-test",
-                "causation-persistence-test"));
+                "causation-persistence-test",
+                "transaction-persistence-test",
+                "reservation-persistence-test"));
 
         var saved = ledgerEntryRepository.findById(new LedgerEntryId(UUID.fromString(posted.ledgerEntryId())));
 
@@ -91,7 +93,8 @@ class LedgerPersistenceIT {
         });
 
         var outbox = jdbcTemplate.queryForMap(
-                "select event_type, aggregate_id, correlation_id, causation_id, status, payload::text "
+                "select event_type, aggregate_id, correlation_id, causation_id, transaction_id, reservation_request_id, "
+                        + "status, payload::text "
                         + "from ledger_outbox_events where aggregate_id = ?",
                 UUID.fromString(posted.ledgerEntryId()).toString());
 
@@ -100,6 +103,8 @@ class LedgerPersistenceIT {
                 .containsEntry("aggregate_id", posted.ledgerEntryId())
                 .containsEntry("correlation_id", "correlation-persistence-test")
                 .containsEntry("causation_id", "causation-persistence-test")
+                .containsEntry("transaction_id", "transaction-persistence-test")
+                .containsEntry("reservation_request_id", "reservation-persistence-test")
                 .containsEntry("status", "PENDING");
         var payload = objectMapper.readTree(String.valueOf(outbox.get("payload")));
         assertThat(payload.path("eventType").asText()).isEqualTo("LedgerPostingCompleted.v1");
@@ -107,8 +112,8 @@ class LedgerPersistenceIT {
         assertThat(payload.path("postingRequestId").asText()).isEqualTo("ledger-posting-001");
         assertThat(payload.path("occurredAt").asText()).isEqualTo(FIXED_NOW.toString());
         assertThat(payload.has("reversalOfLedgerEntryId")).isFalse();
-        assertThat(payload.has("transactionId")).isFalse();
-        assertThat(payload.has("reservationRequestId")).isFalse();
+        assertThat(payload.path("transactionId").asText()).isEqualTo("transaction-persistence-test");
+        assertThat(payload.path("reservationRequestId").asText()).isEqualTo("reservation-persistence-test");
         assertThat(payload.path("lines")).hasSize(2);
         assertThat(payload.path("lines").findValuesAsText("lineType"))
                 .containsExactly("DEBIT", "CREDIT");
@@ -117,7 +122,7 @@ class LedgerPersistenceIT {
     }
 
     @Test
-    void persistsProvidedTransactionMetadataWithoutSynthesizingLegacyValues() throws Exception {
+    void persistsRequiredTransactionMetadataWithoutSynthesizingValues() throws Exception {
         var posted = ledgerService.postLedgerEntry(new PostLedgerEntryCommand(
                 "ledger-posting-transaction-metadata",
                 "Transaction metadata posting",
@@ -177,6 +182,34 @@ class LedgerPersistenceIT {
     }
 
     @Test
+    void replaysTerminalFailureDecisionWithoutSecondOutboxEvent() {
+        var command = new RecordLedgerPostingFailureCommand(
+                "ledger-posting-terminal-failure-replay",
+                "ACCOUNTING_ERROR",
+                "Durable accounting decision rejected the posting",
+                "correlation-terminal-failure-replay",
+                "causation-terminal-failure-replay",
+                "transaction-terminal-failure-replay",
+                "reservation-terminal-failure-replay");
+
+        var first = failureDecisionInputPort.recordFailure(command);
+        var second = failureDecisionInputPort.recordFailure(command);
+
+        assertThat(second).isEqualTo(first);
+        assertThat(jdbcTemplate.queryForObject(
+                        "select count(*) from ledger_posting_failure_decisions where posting_request_id = ?",
+                        Integer.class,
+                        command.postingRequestId()))
+                .isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject(
+                        "select count(*) from ledger_outbox_events where posting_request_id = ? "
+                                + "and event_type = 'LedgerPostingFailed.v1'",
+                        Integer.class,
+                        command.postingRequestId()))
+                .isEqualTo(1);
+    }
+
+    @Test
     void persistsLeaseRetryAndQuarantineWithTheSameEventIdentity() {
         var posted = ledgerService.postLedgerEntry(new PostLedgerEntryCommand(
                 "ledger-posting-delivery-state",
@@ -186,7 +219,9 @@ class LedgerPersistenceIT {
                 List.of(new PostLedgerEntryCommand.Line(UUID.randomUUID(), new BigDecimal("10.00"))),
                 List.of(new PostLedgerEntryCommand.Line(UUID.randomUUID(), new BigDecimal("10.00"))),
                 "correlation-delivery-state",
-                "causation-delivery-state"));
+                "causation-delivery-state",
+                "transaction-delivery-state",
+                "reservation-delivery-state"));
         var eventId = jdbcTemplate.queryForObject(
                 "select event_id from ledger_outbox_events where aggregate_id = ?", UUID.class, posted.ledgerEntryId());
         var initialTime = Instant.parse("2030-01-01T00:00:00Z");
@@ -228,7 +263,9 @@ class LedgerPersistenceIT {
                 List.of(new PostLedgerEntryCommand.Line(debitAccountId, new BigDecimal("125.50"))),
                 List.of(new PostLedgerEntryCommand.Line(creditAccountId, new BigDecimal("125.50"))),
                 "correlation-persistence-test",
-                "causation-persistence-test"));
+                "causation-persistence-test",
+                "transaction-persistence-test",
+                "reservation-persistence-test"));
 
         var ledgerEntryId = UUID.fromString(posted.ledgerEntryId());
 
@@ -266,7 +303,9 @@ class LedgerPersistenceIT {
                 List.of(new PostLedgerEntryCommand.Line(UUID.randomUUID(), new BigDecimal("10.00"))),
                 List.of(new PostLedgerEntryCommand.Line(UUID.randomUUID(), new BigDecimal("10.00"))),
                 "correlation-outbox-immutable",
-                "causation-outbox-immutable"));
+                "causation-outbox-immutable",
+                "transaction-outbox-immutable",
+                "reservation-outbox-immutable"));
 
         assertThat(jdbcTemplate.update(
                         "update ledger_outbox_events set attempts = attempts + 1 where aggregate_id = ?",
@@ -318,7 +357,9 @@ class LedgerPersistenceIT {
                 List.of(new PostLedgerEntryCommand.Line(UUID.randomUUID(), new BigDecimal("10.00"))),
                 List.of(new PostLedgerEntryCommand.Line(UUID.randomUUID(), new BigDecimal("10.00"))),
                 "correlation-outbox-unique",
-                "causation-outbox-unique"));
+                "causation-outbox-unique",
+                "transaction-outbox-unique",
+                "reservation-outbox-unique"));
 
         assertThat(catchThrowableOfType(
                         () -> jdbcTemplate.update(
@@ -345,7 +386,9 @@ class LedgerPersistenceIT {
                 List.of(new PostLedgerEntryCommand.Line(UUID.randomUUID(), new BigDecimal("10.00"))),
                 List.of(new PostLedgerEntryCommand.Line(UUID.randomUUID(), new BigDecimal("10.00"))),
                 "correlation-replay-test",
-                "causation-replay-test");
+                "causation-replay-test",
+                "transaction-replay-test",
+                "reservation-replay-test");
 
         var first = ledgerService.postLedgerEntry(command);
         var second = ledgerService.postLedgerEntry(command);
@@ -371,7 +414,9 @@ class LedgerPersistenceIT {
                         List.of(new PostLedgerEntryCommand.Line(UUID.randomUUID(), new BigDecimal("10.00"))),
                         List.of(new PostLedgerEntryCommand.Line(UUID.randomUUID(), new BigDecimal("10.00"))),
                         "correlation-rollback-test",
-                        "causation-rollback-test")))
+                        "causation-rollback-test",
+                        "transaction-rollback-test",
+                        "reservation-rollback-test")))
                 .isInstanceOf(IllegalStateException.class);
 
         assertThat(jdbcTemplate.queryForObject(

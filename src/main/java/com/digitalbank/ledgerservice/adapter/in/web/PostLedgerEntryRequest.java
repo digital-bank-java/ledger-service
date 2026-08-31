@@ -17,8 +17,8 @@ record PostLedgerEntryRequest(
         @NotBlank String description,
         @NotBlank @Pattern(regexp = "^[A-Z]{3}$") String currency,
         @NotNull Instant effectiveAt,
-        String transactionId,
-        String reservationRequestId,
+        @NotBlank String transactionId,
+        @NotBlank String reservationRequestId,
         @NotEmpty List<@Valid LineRequest> debitLines,
         @NotEmpty List<@Valid LineRequest> creditLines) {
 
