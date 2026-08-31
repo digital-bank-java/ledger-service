@@ -210,6 +210,53 @@ class LedgerPersistenceIT {
     }
 
     @Test
+    void postingRequestCannotProduceBothCompletedAndFailedOutcomes() {
+        var postingRequestId = "ledger-posting-cross-outcome";
+        ledgerService.postLedgerEntry(new PostLedgerEntryCommand(
+                postingRequestId,
+                "Cross-outcome posting",
+                "AED",
+                Instant.parse("2026-07-03T09:00:00Z"),
+                List.of(new PostLedgerEntryCommand.Line(UUID.randomUUID(), new BigDecimal("10.00"))),
+                List.of(new PostLedgerEntryCommand.Line(UUID.randomUUID(), new BigDecimal("10.00"))),
+                "correlation-cross-outcome",
+                "causation-cross-outcome",
+                "transaction-cross-outcome",
+                "reservation-cross-outcome"));
+
+        assertThat(org.assertj.core.api.Assertions.catchThrowable(() -> failureDecisionInputPort.recordFailure(
+                        new RecordLedgerPostingFailureCommand(
+                                postingRequestId,
+                                "ACCOUNTING_ERROR",
+                                "A later failure cannot replace a completed posting",
+                                "correlation-cross-outcome-failure",
+                                "causation-cross-outcome-failure",
+                                "transaction-cross-outcome-failure",
+                                "reservation-cross-outcome-failure"))))
+                .isInstanceOf(com.digitalbank.ledgerservice.domain.exception.DuplicatePostingRequestException.class);
+    }
+
+    @Test
+    void legacyOutboxEventWithoutGovernedMetadataIsNotClaimed() {
+        var eventId = UUID.randomUUID();
+        assertThat(jdbcTemplate.update(
+                        "insert into ledger_outbox_events "
+                                + "(event_id, event_type, aggregate_id, posting_request_id, correlation_id, "
+                                + "causation_id, payload, status, attempts, created_at) "
+                                + "values (?, 'LedgerPostingCompleted.v1', ?, ?, ?, ?, '{}'::jsonb, 'PENDING', 0, now())",
+                        eventId,
+                        UUID.randomUUID().toString(),
+                        "legacy-outbox-request",
+                        "legacy-correlation",
+                        "legacy-causation"))
+                .isEqualTo(1);
+
+        assertThat(outboxDeliveryRepository.claimAvailable(
+                        Instant.parse("2030-01-01T00:00:00Z"), 100, Duration.ofMinutes(1)))
+                .noneMatch(event -> event.eventId().equals(eventId));
+    }
+
+    @Test
     void persistsLeaseRetryAndQuarantineWithTheSameEventIdentity() {
         var posted = ledgerService.postLedgerEntry(new PostLedgerEntryCommand(
                 "ledger-posting-delivery-state",
@@ -367,11 +414,12 @@ class LedgerPersistenceIT {
                         DataAccessException.class))
                 .isNotNull();
 
-        assertThat(jdbcTemplate.update(
-                        "update ledger_outbox_events set status = 'PUBLISHED', published_at = now() "
-                                + "where aggregate_id = ?",
-                        posted.ledgerEntryId()))
-                .isEqualTo(1);
+        var claim = outboxDeliveryRepository.claimAvailable(
+                        Instant.parse("2030-01-01T00:00:00Z"), 100, Duration.ofMinutes(1)).stream()
+                .filter(event -> event.aggregateId().equals(posted.ledgerEntryId()))
+                .findFirst()
+                .orElseThrow();
+        outboxDeliveryRepository.markPublished(claim, Instant.parse("2030-01-01T00:00:01Z"));
 
         assertThat(catchThrowableOfType(
                         () -> jdbcTemplate.update(
@@ -385,6 +433,29 @@ class LedgerPersistenceIT {
                         DataAccessException.class);
         assertThat(deletionFailure)
                 .hasMessageContaining("ledger outbox events are append-only and cannot be deleted");
+    }
+
+    @Test
+    void databaseRejectsPublishingPendingOutboxEventWithoutAClaimedLease() {
+        var posted = ledgerService.postLedgerEntry(new PostLedgerEntryCommand(
+                "ledger-posting-invalid-terminal-transition",
+                "Invalid terminal transition",
+                "AED",
+                Instant.parse("2026-07-03T09:00:00Z"),
+                List.of(new PostLedgerEntryCommand.Line(UUID.randomUUID(), new BigDecimal("10.00"))),
+                List.of(new PostLedgerEntryCommand.Line(UUID.randomUUID(), new BigDecimal("10.00"))),
+                "correlation-invalid-terminal-transition",
+                "causation-invalid-terminal-transition",
+                "transaction-invalid-terminal-transition",
+                "reservation-invalid-terminal-transition"));
+
+        assertThat(catchThrowableOfType(
+                        () -> jdbcTemplate.update(
+                                "update ledger_outbox_events set status = 'PUBLISHED', published_at = now() "
+                                        + "where aggregate_id = ?",
+                                posted.ledgerEntryId()),
+                        DataAccessException.class))
+                .isNotNull();
     }
 
     @Test

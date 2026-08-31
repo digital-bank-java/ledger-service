@@ -33,15 +33,31 @@ public class OutboxDeliveryService {
     private void deliver(com.digitalbank.ledgerservice.application.port.out.ClaimedOutboxEvent event) {
         try {
             transport.deliver(event);
-            repository.markPublished(event, clock.instant());
         } catch (RuntimeException exception) {
-            var now = clock.instant();
-            var error = sanitize(exception);
+            handleDeliveryFailure(event, exception);
+            return;
+        }
+
+        try {
+            repository.markPublished(event, clock.instant());
+        } catch (IllegalStateException ignored) {
+            // Another worker owns the event now; the successful transport call must not be retried.
+        }
+    }
+
+    private void handleDeliveryFailure(
+            com.digitalbank.ledgerservice.application.port.out.ClaimedOutboxEvent event,
+            RuntimeException exception) {
+        var now = clock.instant();
+        var error = sanitize(exception);
+        try {
             if (event.attempt() >= settings.maxAttempts()) {
                 repository.markQuarantined(event, now, error);
             } else {
                 repository.markRetry(event, now.plus(settings.retryDelay()), error);
             }
+        } catch (IllegalStateException ignored) {
+            // A lease can be lost while recording the transport failure; another worker owns the next action.
         }
     }
 

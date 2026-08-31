@@ -36,6 +36,22 @@ class OutboxDeliveryServiceTest {
         assertThat(repository.retried()).isEmpty();
     }
 
+    @Test
+    void doesNotRetryWhenTheDeliveryLeaseIsLostAfterTransportSucceeds() {
+        var event = claimedEvent(1);
+        var repository = new LeaseLostDeliveryRepository(event);
+        var service = new OutboxDeliveryService(
+                repository,
+                ignored -> {},
+                Clock.fixed(NOW, ZoneOffset.UTC),
+                new OutboxDeliverySettings(10, 3, Duration.ofMinutes(1), Duration.ofSeconds(5)));
+
+        service.deliverPendingEvents();
+
+        assertThat(repository.retried()).isEmpty();
+        assertThat(repository.quarantined()).isEmpty();
+    }
+
     private static ClaimedOutboxEvent claimedEvent(int attempt) {
         return new ClaimedOutboxEvent(
                 UUID.randomUUID(),
@@ -67,7 +83,7 @@ class OutboxDeliveryServiceTest {
         }
     }
 
-    private static final class RecordingDeliveryRepository implements LedgerOutboxDeliveryRepository {
+    private static class RecordingDeliveryRepository implements LedgerOutboxDeliveryRepository {
 
         private final List<ClaimedOutboxEvent> available;
         private final List<UUID> retried = new ArrayList<>();
@@ -103,6 +119,18 @@ class OutboxDeliveryServiceTest {
 
         List<UUID> quarantined() {
             return List.copyOf(quarantined);
+        }
+    }
+
+    private static final class LeaseLostDeliveryRepository extends RecordingDeliveryRepository {
+
+        LeaseLostDeliveryRepository(ClaimedOutboxEvent event) {
+            super(event);
+        }
+
+        @Override
+        public void markPublished(ClaimedOutboxEvent event, Instant publishedAt) {
+            throw new IllegalStateException("Outbox delivery lease is no longer owned for event " + event.eventId());
         }
     }
 }

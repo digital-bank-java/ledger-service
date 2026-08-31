@@ -9,6 +9,7 @@ import com.digitalbank.ledgerservice.application.port.in.PostLedgerReversalInput
 import com.digitalbank.ledgerservice.application.port.in.PostingResult;
 import com.digitalbank.ledgerservice.application.port.out.LedgerEntryRepository;
 import com.digitalbank.ledgerservice.application.port.out.LedgerEventPublisher;
+import com.digitalbank.ledgerservice.application.port.out.LedgerPostingFailureDecisionRepository;
 import com.digitalbank.ledgerservice.domain.exception.DuplicatePostingRequestException;
 import com.digitalbank.ledgerservice.domain.exception.LedgerEntryNotFoundException;
 import com.digitalbank.ledgerservice.domain.model.LedgerEntry;
@@ -20,18 +21,30 @@ import java.time.Clock;
 import java.util.ArrayList;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 
 @Service
 public class LedgerService implements PostLedgerEntryInputPort, GetLedgerEntryInputPort, PostLedgerReversalInputPort {
 
     private final LedgerEntryRepository ledgerEntryRepository;
     private final LedgerEventPublisher ledgerEventPublisher;
+    private final LedgerPostingFailureDecisionRepository failureDecisionRepository;
     private final Clock clock;
 
     public LedgerService(
             LedgerEntryRepository ledgerEntryRepository, LedgerEventPublisher ledgerEventPublisher, Clock clock) {
+        this(ledgerEntryRepository, ledgerEventPublisher, null, clock);
+    }
+
+    @Autowired
+    public LedgerService(
+            LedgerEntryRepository ledgerEntryRepository,
+            LedgerEventPublisher ledgerEventPublisher,
+            LedgerPostingFailureDecisionRepository failureDecisionRepository,
+            Clock clock) {
         this.ledgerEntryRepository = ledgerEntryRepository;
         this.ledgerEventPublisher = ledgerEventPublisher;
+        this.failureDecisionRepository = failureDecisionRepository;
         this.clock = clock;
     }
 
@@ -48,15 +61,20 @@ public class LedgerService implements PostLedgerEntryInputPort, GetLedgerEntryIn
 
         var fingerprint = LedgerFingerprint.forPosting(
                 command.description(), command.currency(), command.effectiveAt(), lines);
-        ledgerEntryRepository.lockPostingRequestId(command.postingRequestId().trim());
-        var existing = ledgerEntryRepository.findByPostingRequestId(command.postingRequestId().trim());
+        var postingRequestId = requireText(command.postingRequestId(), "postingRequestId");
+        ledgerEntryRepository.lockPostingRequestId(postingRequestId);
+        if (failureDecisionRepository != null
+                && failureDecisionRepository.findByPostingRequestId(postingRequestId).isPresent()) {
+            throw new DuplicatePostingRequestException(postingRequestId);
+        }
+        var existing = ledgerEntryRepository.findByPostingRequestId(postingRequestId);
         if (existing.isPresent()) {
             return replayOrConflict(existing.get(), fingerprint, command.postingRequestId());
         }
 
         var ledgerEntry = LedgerEntry.post(
                 LedgerEntryId.newId(),
-                command.postingRequestId(),
+                postingRequestId,
                 command.description(),
                 command.currency(),
                 command.effectiveAt(),
@@ -88,8 +106,13 @@ public class LedgerService implements PostLedgerEntryInputPort, GetLedgerEntryIn
                 .orElseThrow(() -> new LedgerEntryNotFoundException(sourceId));
         var fingerprint = LedgerFingerprint.forReversal(source, command.description(), command.effectiveAt());
 
-        ledgerEntryRepository.lockPostingRequestId(command.postingRequestId().trim());
-        var existingByRequest = ledgerEntryRepository.findByPostingRequestId(command.postingRequestId().trim());
+        var postingRequestId = requireText(command.postingRequestId(), "postingRequestId");
+        ledgerEntryRepository.lockPostingRequestId(postingRequestId);
+        if (failureDecisionRepository != null
+                && failureDecisionRepository.findByPostingRequestId(postingRequestId).isPresent()) {
+            throw new DuplicatePostingRequestException(postingRequestId);
+        }
+        var existingByRequest = ledgerEntryRepository.findByPostingRequestId(postingRequestId);
         if (existingByRequest.isPresent()) {
             return replayOrConflict(existingByRequest.get(), fingerprint, command.postingRequestId());
         }
@@ -105,7 +128,7 @@ public class LedgerService implements PostLedgerEntryInputPort, GetLedgerEntryIn
                 .toList();
         var reversal = LedgerEntry.post(
                 LedgerEntryId.newId(),
-                command.postingRequestId(),
+                postingRequestId,
                 command.description(),
                 source.currency(),
                 command.effectiveAt(),
