@@ -60,7 +60,8 @@ class JdbcLedgerOutboxDeliveryRepository implements LedgerOutboxDeliveryReposito
         jdbcTemplate.update(
                 """
                 update ledger_outbox_events
-                set status = 'DELIVERING', attempts = attempts + 1, lease_id = ?, lease_expires_at = ?
+                set status = 'DELIVERING', attempts = attempts + 1, lease_id = ?, lease_expires_at = ?,
+                    quarantined_at = null
                 where event_id = ?
                 """,
                 leaseId,

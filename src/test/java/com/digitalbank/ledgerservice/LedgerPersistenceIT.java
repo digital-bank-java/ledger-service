@@ -251,6 +251,46 @@ class LedgerPersistenceIT {
     }
 
     @Test
+    void requeuesQuarantinedEventUsingDocumentedRecoveryUpdate() {
+        var posted = ledgerService.postLedgerEntry(new PostLedgerEntryCommand(
+                "ledger-posting-delivery-recovery",
+                "Delivery recovery posting",
+                "AED",
+                Instant.parse("2026-07-03T09:00:00Z"),
+                List.of(new PostLedgerEntryCommand.Line(UUID.randomUUID(), new BigDecimal("10.00"))),
+                List.of(new PostLedgerEntryCommand.Line(UUID.randomUUID(), new BigDecimal("10.00"))),
+                "correlation-delivery-recovery",
+                "causation-delivery-recovery",
+                "transaction-delivery-recovery",
+                "reservation-delivery-recovery"));
+        var eventId = jdbcTemplate.queryForObject(
+                "select event_id from ledger_outbox_events where aggregate_id = ?", UUID.class, posted.ledgerEntryId());
+        var initialTime = Instant.parse("2030-01-01T00:00:00Z");
+
+        var claim = outboxDeliveryRepository.claimAvailable(initialTime, 100, Duration.ofMinutes(1)).stream()
+                .filter(event -> event.eventId().equals(eventId))
+                .findFirst()
+                .orElseThrow();
+        outboxDeliveryRepository.markQuarantined(claim, initialTime.plusSeconds(1), "broker unavailable");
+
+        assertThat(jdbcTemplate.update(
+                        "update ledger_outbox_events set status = 'PENDING', next_attempt_at = now(), "
+                                + "lease_id = null, lease_expires_at = null "
+                                + "where event_id = ? and status = 'QUARANTINED'",
+                        eventId))
+                .isEqualTo(1);
+
+        var reclaimed = outboxDeliveryRepository.claimAvailable(initialTime.plusSeconds(2), 100, Duration.ofMinutes(1));
+        assertThat(reclaimed).hasSize(1);
+        assertThat(reclaimed.getFirst().eventId()).isEqualTo(eventId);
+        assertThat(jdbcTemplate.queryForObject(
+                        "select quarantined_at from ledger_outbox_events where event_id = ?",
+                        Object.class,
+                        eventId))
+                .isNull();
+    }
+
+    @Test
     void persistedLedgerEntriesAreAppendOnly() {
         var debitAccountId = UUID.randomUUID();
         var creditAccountId = UUID.randomUUID();
