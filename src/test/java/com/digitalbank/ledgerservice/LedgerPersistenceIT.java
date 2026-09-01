@@ -257,6 +257,52 @@ class LedgerPersistenceIT {
     }
 
     @Test
+    void malformedQuarantinedOutboxEventCannotBeRequeued() {
+        var eventId = UUID.randomUUID();
+        assertThat(jdbcTemplate.update(
+                        "insert into ledger_outbox_events "
+                                + "(event_id, event_type, aggregate_id, posting_request_id, correlation_id, "
+                                + "causation_id, payload, status, attempts, created_at, next_attempt_at, "
+                                + "quarantined_at, last_error) "
+                                + "values (?, 'LedgerPostingCompleted.v1', ?, null, 'correlation', 'causation', "
+                                + "'{}'::jsonb, 'QUARANTINED', 1, now(), now(), now(), 'missing metadata')",
+                        eventId,
+                        UUID.randomUUID().toString()))
+                .isEqualTo(1);
+
+        assertThat(catchThrowableOfType(
+                        () -> jdbcTemplate.update(
+                                "update ledger_outbox_events set status = 'PENDING', next_attempt_at = now(), "
+                                        + "lease_id = null, lease_expires_at = null where event_id = ?",
+                                eventId),
+                        DataAccessException.class))
+                .isNotNull();
+        assertThat(jdbcTemplate.queryForObject(
+                        "select status from ledger_outbox_events where event_id = ?", String.class, eventId))
+                .isEqualTo("QUARANTINED");
+    }
+
+    @Test
+    void blankGovernedMetadataIsNotClaimedForDelivery() {
+        var eventId = UUID.randomUUID();
+        assertThat(jdbcTemplate.update(
+                        "insert into ledger_outbox_events "
+                                + "(event_id, event_type, aggregate_id, posting_request_id, correlation_id, "
+                                + "causation_id, payload, status, attempts, created_at, next_attempt_at, "
+                                + "transaction_id, reservation_request_id) "
+                                + "values (?, 'LedgerPostingCompleted.v1', ?, ?, ' ', 'causation', '{}'::jsonb, "
+                                + "'PENDING', 0, now(), now(), 'transaction', 'reservation')",
+                        eventId,
+                        UUID.randomUUID().toString(),
+                        "blank-metadata-request"))
+                .isEqualTo(1);
+
+        assertThat(outboxDeliveryRepository.claimAvailable(
+                        Instant.parse("2030-01-01T00:00:00Z"), 100, Duration.ofMinutes(1)))
+                .noneMatch(event -> event.eventId().equals(eventId));
+    }
+
+    @Test
     void persistsLeaseRetryAndQuarantineWithTheSameEventIdentity() {
         var posted = ledgerService.postLedgerEntry(new PostLedgerEntryCommand(
                 "ledger-posting-delivery-state",
@@ -321,8 +367,8 @@ class LedgerPersistenceIT {
         outboxDeliveryRepository.markQuarantined(claim, initialTime.plusSeconds(1), "broker unavailable");
 
         assertThat(jdbcTemplate.update(
-                        "update ledger_outbox_events set status = 'PENDING', next_attempt_at = now(), "
-                                + "lease_id = null, lease_expires_at = null "
+                        "update ledger_outbox_events set status = 'PENDING', next_attempt_at = now(), attempts = 0, "
+                                + "lease_id = null, lease_expires_at = null, quarantined_at = null "
                                 + "where event_id = ? and status = 'QUARANTINED'",
                         eventId))
                 .isEqualTo(1);

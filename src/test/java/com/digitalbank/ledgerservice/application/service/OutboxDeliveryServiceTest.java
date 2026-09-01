@@ -37,6 +37,24 @@ class OutboxDeliveryServiceTest {
     }
 
     @Test
+    void quarantinesPostCrashClaimAboveAttemptLimitWithoutCallingTransport() {
+        var event = claimedEvent(4);
+        var repository = new RecordingDeliveryRepository(event);
+        var transport = new FailingTransport();
+        var service = new OutboxDeliveryService(
+                repository,
+                transport,
+                Clock.fixed(NOW, ZoneOffset.UTC),
+                new OutboxDeliverySettings(10, 3, Duration.ofMinutes(1), Duration.ofSeconds(5)));
+
+        service.deliverPendingEvents();
+
+        assertThat(transport.eventIds()).isEmpty();
+        assertThat(repository.quarantined()).containsExactly(event.eventId());
+        assertThat(repository.retried()).isEmpty();
+    }
+
+    @Test
     void doesNotRetryWhenTheDeliveryLeaseIsLostAfterTransportSucceeds() {
         var event = claimedEvent(1);
         var repository = new LeaseLostDeliveryRepository(event);

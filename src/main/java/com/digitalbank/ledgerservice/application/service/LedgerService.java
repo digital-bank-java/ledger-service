@@ -53,6 +53,8 @@ public class LedgerService implements PostLedgerEntryInputPort, GetLedgerEntryIn
     public PostingResult postLedgerEntry(PostLedgerEntryCommand command) {
         var transactionId = requireText(command.transactionId(), "transactionId");
         var reservationRequestId = requireText(command.reservationRequestId(), "reservationRequestId");
+        var correlationId = requireText(command.correlationId(), "correlationId");
+        var causationId = requireText(command.causationId(), "causationId");
         var lines = new ArrayList<LedgerEntryLine>();
         command.debitLines()
                 .forEach(line -> lines.add(new LedgerEntryLine(line.accountId(), LedgerLineType.DEBIT, line.amount())));
@@ -60,7 +62,12 @@ public class LedgerService implements PostLedgerEntryInputPort, GetLedgerEntryIn
                 .forEach(line -> lines.add(new LedgerEntryLine(line.accountId(), LedgerLineType.CREDIT, line.amount())));
 
         var fingerprint = LedgerFingerprint.forPosting(
-                command.description(), command.currency(), command.effectiveAt(), lines);
+                command.description(),
+                command.currency(),
+                command.effectiveAt(),
+                lines,
+                transactionId,
+                reservationRequestId);
         var postingRequestId = requireText(command.postingRequestId(), "postingRequestId");
         ledgerEntryRepository.lockPostingRequestId(postingRequestId);
         if (failureDecisionRepository != null
@@ -87,8 +94,8 @@ public class LedgerService implements PostLedgerEntryInputPort, GetLedgerEntryIn
         ledgerEventPublisher.recordPostingCompleted(
                 savedEntry,
                 null,
-                command.correlationId(),
-                command.causationId(),
+                correlationId,
+                causationId,
                 transactionId,
                 reservationRequestId,
                 savedEntry.createdAt());
@@ -100,11 +107,18 @@ public class LedgerService implements PostLedgerEntryInputPort, GetLedgerEntryIn
     public PostingResult reverseLedgerEntry(PostLedgerReversalCommand command) {
         var transactionId = requireText(command.transactionId(), "transactionId");
         var reservationRequestId = requireText(command.reservationRequestId(), "reservationRequestId");
+        var correlationId = requireText(command.correlationId(), "correlationId");
+        var causationId = requireText(command.causationId(), "causationId");
         var sourceId = new LedgerEntryId(command.sourceLedgerEntryId());
         var source = ledgerEntryRepository
                 .findById(sourceId)
                 .orElseThrow(() -> new LedgerEntryNotFoundException(sourceId));
-        var fingerprint = LedgerFingerprint.forReversal(source, command.description(), command.effectiveAt());
+        var fingerprint = LedgerFingerprint.forReversal(
+                source,
+                command.description(),
+                command.effectiveAt(),
+                transactionId,
+                reservationRequestId);
 
         var postingRequestId = requireText(command.postingRequestId(), "postingRequestId");
         ledgerEntryRepository.lockPostingRequestId(postingRequestId);
@@ -140,8 +154,8 @@ public class LedgerService implements PostLedgerEntryInputPort, GetLedgerEntryIn
         ledgerEventPublisher.recordPostingCompleted(
                 savedReversal,
                 sourceId.value(),
-                command.correlationId(),
-                command.causationId(),
+                correlationId,
+                causationId,
                 transactionId,
                 reservationRequestId,
                 savedReversal.createdAt());

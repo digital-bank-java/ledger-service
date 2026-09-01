@@ -30,9 +30,11 @@ class JdbcLedgerOutboxDeliveryRepository implements LedgerOutboxDeliveryReposito
                 from ledger_outbox_events
                 where ((status = 'PENDING' and next_attempt_at <= ?)
                    or (status = 'DELIVERING' and lease_expires_at <= ?))
-                  and posting_request_id is not null
-                  and transaction_id is not null
-                  and reservation_request_id is not null
+                  and nullif(btrim(posting_request_id), '') is not null
+                  and nullif(btrim(correlation_id), '') is not null
+                  and nullif(btrim(causation_id), '') is not null
+                  and nullif(btrim(transaction_id), '') is not null
+                  and nullif(btrim(reservation_request_id), '') is not null
                 order by created_at, event_id
                 for update skip locked
                 limit ?

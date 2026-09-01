@@ -31,6 +31,16 @@ public class OutboxDeliveryService {
     }
 
     private void deliver(com.digitalbank.ledgerservice.application.port.out.ClaimedOutboxEvent event) {
+        if (event.attempt() > settings.maxAttempts()) {
+            try {
+                repository.markQuarantined(
+                        event, clock.instant(), "Maximum outbox delivery attempts exceeded");
+            } catch (IllegalStateException ignored) {
+                // A lease can be lost before the attempt limit is recorded.
+            }
+            return;
+        }
+
         try {
             transport.deliver(event);
         } catch (RuntimeException exception) {

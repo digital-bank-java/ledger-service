@@ -5,7 +5,11 @@ set status = 'QUARANTINED',
     lease_id = null,
     lease_expires_at = null
 where status in ('PENDING', 'DELIVERING')
-  and (posting_request_id is null or transaction_id is null or reservation_request_id is null);
+  and (nullif(btrim(posting_request_id), '') is null
+    or nullif(btrim(correlation_id), '') is null
+    or nullif(btrim(causation_id), '') is null
+    or nullif(btrim(transaction_id), '') is null
+    or nullif(btrim(reservation_request_id), '') is null);
 
 create or replace function prevent_ledger_outbox_mutation()
 returns trigger
@@ -41,13 +45,23 @@ begin
     if new.status = 'PENDING' then
         if old.status not in ('PENDING', 'DELIVERING', 'QUARANTINED')
             or new.published_at is not null or new.lease_id is not null or new.lease_expires_at is not null
-            or new.next_attempt_at is null then
+            or new.next_attempt_at is null or new.quarantined_at is not null
+            or nullif(btrim(new.posting_request_id), '') is null
+            or nullif(btrim(new.correlation_id), '') is null
+            or nullif(btrim(new.causation_id), '') is null
+            or nullif(btrim(new.transaction_id), '') is null
+            or nullif(btrim(new.reservation_request_id), '') is null then
             raise exception 'invalid pending ledger outbox delivery state';
         end if;
     elsif new.status = 'DELIVERING' then
         if old.status not in ('PENDING', 'DELIVERING')
             or new.published_at is not null or new.quarantined_at is not null or new.lease_id is null
-            or new.lease_expires_at is null or new.attempts <= old.attempts then
+            or new.lease_expires_at is null or new.attempts <= old.attempts
+            or nullif(btrim(new.posting_request_id), '') is null
+            or nullif(btrim(new.correlation_id), '') is null
+            or nullif(btrim(new.causation_id), '') is null
+            or nullif(btrim(new.transaction_id), '') is null
+            or nullif(btrim(new.reservation_request_id), '') is null then
             raise exception 'invalid delivering ledger outbox delivery state';
         end if;
     elsif new.status = 'PUBLISHED' then
