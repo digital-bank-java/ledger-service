@@ -32,6 +32,15 @@ class LedgerOutboxEventJpaEntity {
     @Column(name = "causation_id", nullable = false, length = 255)
     private String causationId;
 
+    @Column(name = "transaction_id", length = 255)
+    private String transactionId;
+
+    @Column(name = "reservation_request_id", length = 255)
+    private String reservationRequestId;
+
+    @Column(name = "decision_id")
+    private UUID decisionId;
+
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "payload", nullable = false, columnDefinition = "jsonb")
     private String payload;
@@ -57,6 +66,9 @@ class LedgerOutboxEventJpaEntity {
             String postingRequestId,
             String correlationId,
             String causationId,
+            String transactionId,
+            String reservationRequestId,
+            UUID decisionId,
             String payload,
             String status,
             int attempts,
@@ -68,6 +80,9 @@ class LedgerOutboxEventJpaEntity {
         this.postingRequestId = postingRequestId;
         this.correlationId = correlationId;
         this.causationId = causationId;
+        this.transactionId = transactionId;
+        this.reservationRequestId = reservationRequestId;
+        this.decisionId = decisionId;
         this.payload = payload;
         this.status = status;
         this.attempts = attempts;

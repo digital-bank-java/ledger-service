@@ -5,4 +5,8 @@ import jakarta.validation.constraints.NotNull;
 import java.time.Instant;
 
 record PostLedgerReversalRequest(
-        @NotBlank String postingRequestId, @NotBlank String description, @NotNull Instant effectiveAt) {}
+        @NotBlank String postingRequestId,
+        @NotBlank String description,
+        @NotNull Instant effectiveAt,
+        @NotBlank String transactionId,
+        @NotBlank String reservationRequestId) {}

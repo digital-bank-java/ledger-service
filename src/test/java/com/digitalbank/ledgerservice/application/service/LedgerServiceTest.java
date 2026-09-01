@@ -11,6 +11,7 @@ import com.digitalbank.ledgerservice.domain.exception.UnbalancedLedgerEntryExcep
 import com.digitalbank.ledgerservice.domain.model.LedgerEntry;
 import com.digitalbank.ledgerservice.domain.model.LedgerEntryId;
 import com.digitalbank.ledgerservice.domain.model.LedgerLineType;
+import com.digitalbank.ledgerservice.domain.model.LedgerPostingFailureDecision;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
@@ -66,6 +67,28 @@ class LedgerServiceTest {
         assertThatThrownBy(() -> ledgerService.postLedgerEntry(command))
                 .isInstanceOf(UnbalancedLedgerEntryException.class)
                 .hasMessageContaining("total debit amount must equal total credit amount");
+        assertThat(publisher.failed()).isEmpty();
+    }
+
+    @Test
+    void requiresGovernedIdentifiersBeforePostingLedgerEvent() {
+        var command = new PostLedgerEntryCommand(
+                "ledger-posting-missing-transaction",
+                "Settlement posting",
+                "AED",
+                Instant.parse("2026-07-03T09:00:00Z"),
+                List.of(new PostLedgerEntryCommand.Line(UUID.randomUUID(), new BigDecimal("100.00"))),
+                List.of(new PostLedgerEntryCommand.Line(UUID.randomUUID(), new BigDecimal("100.00"))),
+                "correlation-test",
+                "causation-test",
+                null,
+                "reservation-test");
+
+        assertThatThrownBy(() -> ledgerService.postLedgerEntry(command))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("transactionId is required");
+        assertThat(repository.entries()).isEmpty();
+        assertThat(publisher.completed()).isEmpty();
     }
 
     @Test
@@ -91,7 +114,9 @@ class LedgerServiceTest {
                 List.of(new PostLedgerEntryCommand.Line(debitAccountId, new BigDecimal("100.00"))),
                 List.of(new PostLedgerEntryCommand.Line(creditAccountId, new BigDecimal("100.00"))),
                 "correlation-test",
-                "causation-test");
+                "causation-test",
+                "transaction-test",
+                "reservation-test");
 
         var view = ledgerService.postLedgerEntry(command);
 
@@ -117,7 +142,9 @@ class LedgerServiceTest {
                 "Reverse posting",
                 Instant.parse("2026-07-03T11:00:00Z"),
                 "correlation-reversal-test",
-                "causation-reversal-test"));
+                "causation-reversal-test",
+                "transaction-reversal-test",
+                "reservation-reversal-test"));
 
         assertThat(reversal.replay()).isFalse();
         assertThat(publisher.completed()).hasSize(2);
@@ -137,12 +164,15 @@ class LedgerServiceTest {
                 List.of(new PostLedgerEntryCommand.Line(UUID.randomUUID(), debitAmount)),
                 List.of(new PostLedgerEntryCommand.Line(UUID.randomUUID(), creditAmount)),
                 "correlation-test",
-                "causation-test");
+                "causation-test",
+                "transaction-test",
+                "reservation-test");
     }
 
     private static final class RecordingLedgerEventPublisher implements LedgerEventPublisher {
 
         private final List<CompletedCall> completed = new ArrayList<>();
+        private final List<LedgerPostingFailureDecision> failed = new ArrayList<>();
 
         @Override
         public void recordPostingCompleted(
@@ -150,21 +180,30 @@ class LedgerServiceTest {
                 UUID reversalOfLedgerEntryId,
                 String correlationId,
                 String causationId,
+                String transactionId,
+                String reservationRequestId,
                 Instant occurredAt) {
-            completed.add(new CompletedCall(entry, reversalOfLedgerEntryId, correlationId, causationId, occurredAt));
+            completed.add(new CompletedCall(
+                    entry,
+                    reversalOfLedgerEntryId,
+                    correlationId,
+                    causationId,
+                    transactionId,
+                    reservationRequestId,
+                    occurredAt));
         }
 
         @Override
-        public void recordPostingFailed(
-                String postingRequestId,
-                String failureCode,
-                String failureReason,
-                String correlationId,
-                String causationId,
-                Instant occurredAt) {}
+        public void recordPostingFailed(LedgerPostingFailureDecision decision) {
+            failed.add(decision);
+        }
 
         List<CompletedCall> completed() {
             return List.copyOf(completed);
+        }
+
+        List<LedgerPostingFailureDecision> failed() {
+            return List.copyOf(failed);
         }
     }
 
@@ -173,6 +212,8 @@ class LedgerServiceTest {
             UUID reversalOfLedgerEntryId,
             String correlationId,
             String causationId,
+            String transactionId,
+            String reservationRequestId,
             Instant occurredAt) {}
 
     private static final class InMemoryLedgerEntryRepository implements LedgerEntryRepository {

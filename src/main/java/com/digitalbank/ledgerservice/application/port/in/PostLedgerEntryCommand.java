@@ -13,7 +13,31 @@ public record PostLedgerEntryCommand(
         List<Line> debitLines,
         List<Line> creditLines,
         String correlationId,
-        String causationId) {
+        String causationId,
+        String transactionId,
+        String reservationRequestId) {
+
+    public PostLedgerEntryCommand(
+            String postingRequestId,
+            String description,
+            String currency,
+            Instant effectiveAt,
+            List<Line> debitLines,
+            List<Line> creditLines,
+            String correlationId,
+            String causationId) {
+        this(
+                postingRequestId,
+                description,
+                currency,
+                effectiveAt,
+                debitLines,
+                creditLines,
+                correlationId,
+                causationId,
+                null,
+                null);
+    }
 
     public record Line(UUID accountId, BigDecimal amount) {}
 }
