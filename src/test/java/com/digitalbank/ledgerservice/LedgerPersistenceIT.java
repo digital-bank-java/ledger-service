@@ -237,26 +237,6 @@ class LedgerPersistenceIT {
     }
 
     @Test
-    void legacyOutboxEventWithoutGovernedMetadataIsNotClaimed() {
-        var eventId = UUID.randomUUID();
-        assertThat(jdbcTemplate.update(
-                        "insert into ledger_outbox_events "
-                                + "(event_id, event_type, aggregate_id, posting_request_id, correlation_id, "
-                                + "causation_id, payload, status, attempts, created_at) "
-                                + "values (?, 'LedgerPostingCompleted.v1', ?, ?, ?, ?, '{}'::jsonb, 'PENDING', 0, now())",
-                        eventId,
-                        UUID.randomUUID().toString(),
-                        "legacy-outbox-request",
-                        "legacy-correlation",
-                        "legacy-causation"))
-                .isEqualTo(1);
-
-        assertThat(outboxDeliveryRepository.claimAvailable(
-                        Instant.parse("2030-01-01T00:00:00Z"), 100, Duration.ofMinutes(1)))
-                .noneMatch(event -> event.eventId().equals(eventId));
-    }
-
-    @Test
     void malformedQuarantinedOutboxEventCannotBeRequeued() {
         var eventId = UUID.randomUUID();
         assertThat(jdbcTemplate.update(
@@ -283,23 +263,21 @@ class LedgerPersistenceIT {
     }
 
     @Test
-    void blankGovernedMetadataIsNotClaimedForDelivery() {
+    void blankGovernedMetadataCannotBeInsertedIntoDeliverableState() {
         var eventId = UUID.randomUUID();
-        assertThat(jdbcTemplate.update(
-                        "insert into ledger_outbox_events "
-                                + "(event_id, event_type, aggregate_id, posting_request_id, correlation_id, "
-                                + "causation_id, payload, status, attempts, created_at, next_attempt_at, "
-                                + "transaction_id, reservation_request_id) "
-                                + "values (?, 'LedgerPostingCompleted.v1', ?, ?, ' ', 'causation', '{}'::jsonb, "
-                                + "'PENDING', 0, now(), now(), 'transaction', 'reservation')",
-                        eventId,
-                        UUID.randomUUID().toString(),
-                        "blank-metadata-request"))
-                .isEqualTo(1);
-
-        assertThat(outboxDeliveryRepository.claimAvailable(
-                        Instant.parse("2030-01-01T00:00:00Z"), 100, Duration.ofMinutes(1)))
-                .noneMatch(event -> event.eventId().equals(eventId));
+        assertThat(catchThrowableOfType(
+                        () -> jdbcTemplate.update(
+                                "insert into ledger_outbox_events "
+                                        + "(event_id, event_type, aggregate_id, posting_request_id, correlation_id, "
+                                        + "causation_id, payload, status, attempts, created_at, next_attempt_at, "
+                                        + "transaction_id, reservation_request_id) "
+                                        + "values (?, 'LedgerPostingCompleted.v1', ?, ?, ' ', 'causation', '{}'::jsonb, "
+                                        + "'PENDING', 0, now(), now(), 'transaction', 'reservation')",
+                                eventId,
+                                UUID.randomUUID().toString(),
+                                "blank-metadata-request"),
+                        DataAccessException.class))
+                .isNotNull();
     }
 
     @Test
@@ -368,6 +346,7 @@ class LedgerPersistenceIT {
 
         assertThat(jdbcTemplate.update(
                         "update ledger_outbox_events set status = 'PENDING', next_attempt_at = now(), attempts = 0, "
+                                + "last_error = null, "
                                 + "lease_id = null, lease_expires_at = null, quarantined_at = null "
                                 + "where event_id = ? and status = 'QUARANTINED'",
                         eventId))
@@ -376,11 +355,16 @@ class LedgerPersistenceIT {
         var reclaimed = outboxDeliveryRepository.claimAvailable(initialTime.plusSeconds(2), 100, Duration.ofMinutes(1));
         assertThat(reclaimed).hasSize(1);
         assertThat(reclaimed.getFirst().eventId()).isEqualTo(eventId);
+        var recoveredState = jdbcTemplate.queryForMap(
+                "select quarantined_at, last_error from ledger_outbox_events where event_id = ?", eventId);
+        assertThat(recoveredState)
+                .containsEntry("quarantined_at", null)
+                .containsEntry("last_error", null);
         assertThat(jdbcTemplate.queryForObject(
-                        "select quarantined_at from ledger_outbox_events where event_id = ?",
+                        "select status from ledger_outbox_events where event_id = ?",
                         Object.class,
                         eventId))
-                .isNull();
+                .isEqualTo("DELIVERING");
     }
 
     @Test

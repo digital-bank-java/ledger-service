@@ -11,6 +11,17 @@ where status in ('PENDING', 'DELIVERING')
     or nullif(btrim(transaction_id), '') is null
     or nullif(btrim(reservation_request_id), '') is null);
 
+alter table ledger_outbox_events
+    add constraint ck_ledger_outbox_governed_metadata
+    check (
+        status not in ('PENDING', 'DELIVERING')
+        or (nullif(btrim(posting_request_id), '') is not null
+            and nullif(btrim(correlation_id), '') is not null
+            and nullif(btrim(causation_id), '') is not null
+            and nullif(btrim(transaction_id), '') is not null
+            and nullif(btrim(reservation_request_id), '') is not null)
+    );
+
 create or replace function prevent_ledger_outbox_mutation()
 returns trigger
 language plpgsql
@@ -38,7 +49,8 @@ begin
         raise exception 'published ledger outbox events are immutable';
     end if;
 
-    if new.attempts < old.attempts then
+    if new.attempts < old.attempts
+        and not (old.status = 'QUARANTINED' and new.status = 'PENDING' and new.attempts = 0) then
         raise exception 'ledger outbox attempts cannot decrease';
     end if;
 

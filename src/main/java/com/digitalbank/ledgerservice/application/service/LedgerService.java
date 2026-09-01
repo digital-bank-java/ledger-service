@@ -66,6 +66,8 @@ public class LedgerService implements PostLedgerEntryInputPort, GetLedgerEntryIn
                 command.currency(),
                 command.effectiveAt(),
                 lines,
+                correlationId,
+                causationId,
                 transactionId,
                 reservationRequestId);
         var postingRequestId = requireText(command.postingRequestId(), "postingRequestId");
@@ -117,6 +119,8 @@ public class LedgerService implements PostLedgerEntryInputPort, GetLedgerEntryIn
                 source,
                 command.description(),
                 command.effectiveAt(),
+                correlationId,
+                causationId,
                 transactionId,
                 reservationRequestId);
 

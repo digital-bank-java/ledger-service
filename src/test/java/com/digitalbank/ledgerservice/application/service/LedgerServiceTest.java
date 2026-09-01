@@ -209,6 +209,28 @@ class LedgerServiceTest {
     }
 
     @Test
+    void rejectsPostingReplayWithDifferentEventMetadata() {
+        var first = balancedCommand(
+                "ledger-posting-event-metadata-replay", new BigDecimal("100.00"), new BigDecimal("100.00"));
+        ledgerService.postLedgerEntry(first);
+        var replayWithDifferentMetadata = new PostLedgerEntryCommand(
+                first.postingRequestId(),
+                first.description(),
+                first.currency(),
+                first.effectiveAt(),
+                first.debitLines(),
+                first.creditLines(),
+                "correlation-different",
+                first.causationId(),
+                first.transactionId(),
+                first.reservationRequestId());
+
+        assertThatThrownBy(() -> ledgerService.postLedgerEntry(replayWithDifferentMetadata))
+                .isInstanceOf(com.digitalbank.ledgerservice.domain.exception.DuplicatePostingRequestException.class);
+        assertThat(publisher.completed()).hasSize(1);
+    }
+
+    @Test
     void rejectsReversalReplayWithDifferentGovernedIdentifiers() {
         var source = ledgerService.postLedgerEntry(
                 balancedCommand("ledger-posting-reversal-governed-source", new BigDecimal("100.00"), new BigDecimal("100.00")));
@@ -231,6 +253,38 @@ class LedgerServiceTest {
                 first.causationId(),
                 "transaction-different",
                 "reservation-different");
+
+        assertThatThrownBy(() -> ledgerService.reverseLedgerEntry(replayWithDifferentMetadata))
+                .isInstanceOf(com.digitalbank.ledgerservice.domain.exception.DuplicatePostingRequestException.class);
+        assertThat(publisher.completed()).hasSize(2);
+    }
+
+    @Test
+    void rejectsReversalReplayWithDifferentEventMetadata() {
+        var source = ledgerService.postLedgerEntry(
+                balancedCommand(
+                        "ledger-posting-reversal-event-metadata-source",
+                        new BigDecimal("100.00"),
+                        new BigDecimal("100.00")));
+        var first = new PostLedgerReversalCommand(
+                UUID.fromString(source.ledgerEntryId()),
+                "ledger-reversal-event-metadata-replay",
+                "Reverse posting",
+                Instant.parse("2026-07-03T11:00:00Z"),
+                "correlation-reversal-original",
+                "causation-reversal-original",
+                "transaction-reversal-original",
+                "reservation-reversal-original");
+        ledgerService.reverseLedgerEntry(first);
+        var replayWithDifferentMetadata = new PostLedgerReversalCommand(
+                first.sourceLedgerEntryId(),
+                first.postingRequestId(),
+                first.description(),
+                first.effectiveAt(),
+                "correlation-reversal-different",
+                first.causationId(),
+                first.transactionId(),
+                first.reservationRequestId());
 
         assertThatThrownBy(() -> ledgerService.reverseLedgerEntry(replayWithDifferentMetadata))
                 .isInstanceOf(com.digitalbank.ledgerservice.domain.exception.DuplicatePostingRequestException.class);

@@ -60,6 +60,7 @@ update ledger_outbox_events
 set status = 'PENDING',
     next_attempt_at = now(),
     attempts = 0,
+    last_error = null,
     lease_id = null,
     lease_expires_at = null,
     quarantined_at = null

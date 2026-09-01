@@ -29,7 +29,34 @@ public final class LedgerFingerprint {
             String transactionId,
             String reservationRequestId) {
         return digest(canonical(
-                description, currency, effectiveAt, transactionId, reservationRequestId, lines));
+                description,
+                currency,
+                effectiveAt,
+                null,
+                null,
+                transactionId,
+                reservationRequestId,
+                lines));
+    }
+
+    public static String forPosting(
+            String description,
+            String currency,
+            Instant effectiveAt,
+            List<LedgerEntryLine> lines,
+            String correlationId,
+            String causationId,
+            String transactionId,
+            String reservationRequestId) {
+        return digest(canonical(
+                description,
+                currency,
+                effectiveAt,
+                correlationId,
+                causationId,
+                transactionId,
+                reservationRequestId,
+                lines));
     }
 
     public static String forReversal(
@@ -50,6 +77,18 @@ public final class LedgerFingerprint {
             Instant effectiveAt,
             String transactionId,
             String reservationRequestId) {
+        return forReversal(
+                source, description, effectiveAt, null, null, transactionId, reservationRequestId);
+    }
+
+    public static String forReversal(
+            LedgerEntry source,
+            String description,
+            Instant effectiveAt,
+            String correlationId,
+            String causationId,
+            String transactionId,
+            String reservationRequestId) {
         var lines = source.lines().stream()
                 .map(line -> new LedgerEntryLine(
                         line.accountId(),
@@ -60,6 +99,8 @@ public final class LedgerFingerprint {
                 description + "|reversal-of=" + source.id().value(),
                 source.currency(),
                 effectiveAt,
+                correlationId,
+                causationId,
                 transactionId,
                 reservationRequestId,
                 lines));
@@ -75,13 +116,15 @@ public final class LedgerFingerprint {
 
     private static String canonical(
             String description, String currency, Instant effectiveAt, List<LedgerEntryLine> lines) {
-        return canonical(description, currency, effectiveAt, null, null, lines);
+        return canonical(description, currency, effectiveAt, null, null, null, null, lines);
     }
 
     private static String canonical(
             String description,
             String currency,
             Instant effectiveAt,
+            String correlationId,
+            String causationId,
             String transactionId,
             String reservationRequestId,
             List<LedgerEntryLine> lines) {
@@ -95,7 +138,10 @@ public final class LedgerFingerprint {
                         line.accountId().toString(),
                         normalizeAmount(line.amount())))
                 .toList();
-        if (transactionId == null && reservationRequestId == null) {
+        if (correlationId == null
+                && causationId == null
+                && transactionId == null
+                && reservationRequestId == null) {
             return String.join(
                     "|",
                     description.trim(),
@@ -108,6 +154,8 @@ public final class LedgerFingerprint {
                 description.trim(),
                 currency.trim().toUpperCase(),
                 effectiveAt.toString(),
+                correlationId == null ? "" : correlationId.trim(),
+                causationId == null ? "" : causationId.trim(),
                 transactionId == null ? "" : transactionId.trim(),
                 reservationRequestId == null ? "" : reservationRequestId.trim(),
                 String.join(",", orderedLines));
