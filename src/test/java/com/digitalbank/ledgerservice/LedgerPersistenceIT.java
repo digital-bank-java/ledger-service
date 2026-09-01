@@ -210,6 +210,77 @@ class LedgerPersistenceIT {
     }
 
     @Test
+    void postingRequestCannotProduceBothCompletedAndFailedOutcomes() {
+        var postingRequestId = "ledger-posting-cross-outcome";
+        ledgerService.postLedgerEntry(new PostLedgerEntryCommand(
+                postingRequestId,
+                "Cross-outcome posting",
+                "AED",
+                Instant.parse("2026-07-03T09:00:00Z"),
+                List.of(new PostLedgerEntryCommand.Line(UUID.randomUUID(), new BigDecimal("10.00"))),
+                List.of(new PostLedgerEntryCommand.Line(UUID.randomUUID(), new BigDecimal("10.00"))),
+                "correlation-cross-outcome",
+                "causation-cross-outcome",
+                "transaction-cross-outcome",
+                "reservation-cross-outcome"));
+
+        assertThat(org.assertj.core.api.Assertions.catchThrowable(() -> failureDecisionInputPort.recordFailure(
+                        new RecordLedgerPostingFailureCommand(
+                                postingRequestId,
+                                "ACCOUNTING_ERROR",
+                                "A later failure cannot replace a completed posting",
+                                "correlation-cross-outcome-failure",
+                                "causation-cross-outcome-failure",
+                                "transaction-cross-outcome-failure",
+                                "reservation-cross-outcome-failure"))))
+                .isInstanceOf(com.digitalbank.ledgerservice.domain.exception.DuplicatePostingRequestException.class);
+    }
+
+    @Test
+    void malformedQuarantinedOutboxEventCannotBeRequeued() {
+        var eventId = UUID.randomUUID();
+        assertThat(jdbcTemplate.update(
+                        "insert into ledger_outbox_events "
+                                + "(event_id, event_type, aggregate_id, posting_request_id, correlation_id, "
+                                + "causation_id, payload, status, attempts, created_at, next_attempt_at, "
+                                + "quarantined_at, last_error) "
+                                + "values (?, 'LedgerPostingCompleted.v1', ?, null, 'correlation', 'causation', "
+                                + "'{}'::jsonb, 'QUARANTINED', 1, now(), now(), now(), 'missing metadata')",
+                        eventId,
+                        UUID.randomUUID().toString()))
+                .isEqualTo(1);
+
+        assertThat(catchThrowableOfType(
+                        () -> jdbcTemplate.update(
+                                "update ledger_outbox_events set status = 'PENDING', next_attempt_at = now(), "
+                                        + "lease_id = null, lease_expires_at = null where event_id = ?",
+                                eventId),
+                        DataAccessException.class))
+                .isNotNull();
+        assertThat(jdbcTemplate.queryForObject(
+                        "select status from ledger_outbox_events where event_id = ?", String.class, eventId))
+                .isEqualTo("QUARANTINED");
+    }
+
+    @Test
+    void blankGovernedMetadataCannotBeInsertedIntoDeliverableState() {
+        var eventId = UUID.randomUUID();
+        assertThat(catchThrowableOfType(
+                        () -> jdbcTemplate.update(
+                                "insert into ledger_outbox_events "
+                                        + "(event_id, event_type, aggregate_id, posting_request_id, correlation_id, "
+                                        + "causation_id, payload, status, attempts, created_at, next_attempt_at, "
+                                        + "transaction_id, reservation_request_id) "
+                                        + "values (?, 'LedgerPostingCompleted.v1', ?, ?, ' ', 'causation', '{}'::jsonb, "
+                                        + "'PENDING', 0, now(), now(), 'transaction', 'reservation')",
+                                eventId,
+                                UUID.randomUUID().toString(),
+                                "blank-metadata-request"),
+                        DataAccessException.class))
+                .isNotNull();
+    }
+
+    @Test
     void persistsLeaseRetryAndQuarantineWithTheSameEventIdentity() {
         var posted = ledgerService.postLedgerEntry(new PostLedgerEntryCommand(
                 "ledger-posting-delivery-state",
@@ -274,8 +345,9 @@ class LedgerPersistenceIT {
         outboxDeliveryRepository.markQuarantined(claim, initialTime.plusSeconds(1), "broker unavailable");
 
         assertThat(jdbcTemplate.update(
-                        "update ledger_outbox_events set status = 'PENDING', next_attempt_at = now(), "
-                                + "lease_id = null, lease_expires_at = null "
+                        "update ledger_outbox_events set status = 'PENDING', next_attempt_at = now(), attempts = 0, "
+                                + "last_error = null, "
+                                + "lease_id = null, lease_expires_at = null, quarantined_at = null "
                                 + "where event_id = ? and status = 'QUARANTINED'",
                         eventId))
                 .isEqualTo(1);
@@ -283,11 +355,16 @@ class LedgerPersistenceIT {
         var reclaimed = outboxDeliveryRepository.claimAvailable(initialTime.plusSeconds(2), 100, Duration.ofMinutes(1));
         assertThat(reclaimed).hasSize(1);
         assertThat(reclaimed.getFirst().eventId()).isEqualTo(eventId);
+        var recoveredState = jdbcTemplate.queryForMap(
+                "select quarantined_at, last_error from ledger_outbox_events where event_id = ?", eventId);
+        assertThat(recoveredState)
+                .containsEntry("quarantined_at", null)
+                .containsEntry("last_error", null);
         assertThat(jdbcTemplate.queryForObject(
-                        "select quarantined_at from ledger_outbox_events where event_id = ?",
+                        "select status from ledger_outbox_events where event_id = ?",
                         Object.class,
                         eventId))
-                .isNull();
+                .isEqualTo("DELIVERING");
     }
 
     @Test
@@ -367,11 +444,12 @@ class LedgerPersistenceIT {
                         DataAccessException.class))
                 .isNotNull();
 
-        assertThat(jdbcTemplate.update(
-                        "update ledger_outbox_events set status = 'PUBLISHED', published_at = now() "
-                                + "where aggregate_id = ?",
-                        posted.ledgerEntryId()))
-                .isEqualTo(1);
+        var claim = outboxDeliveryRepository.claimAvailable(
+                        Instant.parse("2030-01-01T00:00:00Z"), 100, Duration.ofMinutes(1)).stream()
+                .filter(event -> event.aggregateId().equals(posted.ledgerEntryId()))
+                .findFirst()
+                .orElseThrow();
+        outboxDeliveryRepository.markPublished(claim, Instant.parse("2030-01-01T00:00:01Z"));
 
         assertThat(catchThrowableOfType(
                         () -> jdbcTemplate.update(
@@ -385,6 +463,29 @@ class LedgerPersistenceIT {
                         DataAccessException.class);
         assertThat(deletionFailure)
                 .hasMessageContaining("ledger outbox events are append-only and cannot be deleted");
+    }
+
+    @Test
+    void databaseRejectsPublishingPendingOutboxEventWithoutAClaimedLease() {
+        var posted = ledgerService.postLedgerEntry(new PostLedgerEntryCommand(
+                "ledger-posting-invalid-terminal-transition",
+                "Invalid terminal transition",
+                "AED",
+                Instant.parse("2026-07-03T09:00:00Z"),
+                List.of(new PostLedgerEntryCommand.Line(UUID.randomUUID(), new BigDecimal("10.00"))),
+                List.of(new PostLedgerEntryCommand.Line(UUID.randomUUID(), new BigDecimal("10.00"))),
+                "correlation-invalid-terminal-transition",
+                "causation-invalid-terminal-transition",
+                "transaction-invalid-terminal-transition",
+                "reservation-invalid-terminal-transition"));
+
+        assertThat(catchThrowableOfType(
+                        () -> jdbcTemplate.update(
+                                "update ledger_outbox_events set status = 'PUBLISHED', published_at = now() "
+                                        + "where aggregate_id = ?",
+                                posted.ledgerEntryId()),
+                        DataAccessException.class))
+                .isNotNull();
     }
 
     @Test

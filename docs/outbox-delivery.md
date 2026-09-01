@@ -59,10 +59,18 @@ change `event_id`, payload, metadata, or aggregate ID:
 update ledger_outbox_events
 set status = 'PENDING',
     next_attempt_at = now(),
+    attempts = 0,
+    last_error = null,
     lease_id = null,
-    lease_expires_at = null
+    lease_expires_at = null,
+    quarantined_at = null
 where event_id = '<event UUID>'
-  and status = 'QUARANTINED';
+  and status = 'QUARANTINED'
+  and nullif(btrim(posting_request_id), '') is not null
+  and nullif(btrim(correlation_id), '') is not null
+  and nullif(btrim(causation_id), '') is not null
+  and nullif(btrim(transaction_id), '') is not null
+  and nullif(btrim(reservation_request_id), '') is not null;
 ```
 
 The original event identity is retained. Recovery does not create a new ledger

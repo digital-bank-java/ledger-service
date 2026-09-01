@@ -3,6 +3,7 @@ package com.digitalbank.ledgerservice.application.service;
 import com.digitalbank.ledgerservice.application.port.in.RecordLedgerPostingFailureCommand;
 import com.digitalbank.ledgerservice.application.port.in.RecordLedgerPostingFailureInputPort;
 import com.digitalbank.ledgerservice.application.port.out.LedgerEventPublisher;
+import com.digitalbank.ledgerservice.application.port.out.LedgerEntryRepository;
 import com.digitalbank.ledgerservice.application.port.out.LedgerPostingFailureDecisionRepository;
 import com.digitalbank.ledgerservice.domain.exception.DuplicatePostingRequestException;
 import com.digitalbank.ledgerservice.domain.model.LedgerPostingFailureDecision;
@@ -10,11 +11,13 @@ import java.time.Clock;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.beans.factory.annotation.Autowired;
 
 @Service
 public class LedgerPostingFailureDecisionService implements RecordLedgerPostingFailureInputPort {
 
     private final LedgerPostingFailureDecisionRepository failureDecisionRepository;
+    private final LedgerEntryRepository ledgerEntryRepository;
     private final LedgerEventPublisher ledgerEventPublisher;
     private final Clock clock;
 
@@ -22,9 +25,19 @@ public class LedgerPostingFailureDecisionService implements RecordLedgerPostingF
             LedgerPostingFailureDecisionRepository failureDecisionRepository,
             LedgerEventPublisher ledgerEventPublisher,
             Clock clock) {
+        this(failureDecisionRepository, ledgerEventPublisher, clock, null);
+    }
+
+    @Autowired
+    public LedgerPostingFailureDecisionService(
+            LedgerPostingFailureDecisionRepository failureDecisionRepository,
+            LedgerEventPublisher ledgerEventPublisher,
+            Clock clock,
+            LedgerEntryRepository ledgerEntryRepository) {
         this.failureDecisionRepository = failureDecisionRepository;
         this.ledgerEventPublisher = ledgerEventPublisher;
         this.clock = clock;
+        this.ledgerEntryRepository = ledgerEntryRepository;
     }
 
     @Override
@@ -37,6 +50,13 @@ public class LedgerPostingFailureDecisionService implements RecordLedgerPostingF
         var causationId = requireText(command.causationId(), "causationId");
         var transactionId = requireText(command.transactionId(), "transactionId");
         var reservationRequestId = requireText(command.reservationRequestId(), "reservationRequestId");
+
+        if (ledgerEntryRepository != null) {
+            ledgerEntryRepository.lockPostingRequestId(postingRequestId);
+            if (ledgerEntryRepository.findByPostingRequestId(postingRequestId).isPresent()) {
+                throw new DuplicatePostingRequestException(postingRequestId);
+            }
+        }
 
         var existing = failureDecisionRepository.findByPostingRequestId(postingRequestId);
         if (existing.isPresent()) {
