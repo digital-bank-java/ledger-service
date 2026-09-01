@@ -46,6 +46,15 @@ class ApiExceptionHandler {
         return ResponseEntity.badRequest().body(problem);
     }
 
+    @ExceptionHandler(InvalidLedgerRequestMetadataException.class)
+    ResponseEntity<ProblemDetail> handleInvalidLedgerRequestMetadata(
+            InvalidLedgerRequestMetadataException exception) {
+        var problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, exception.getMessage());
+        problem.setTitle("Invalid request");
+        problem.setType(URI.create("https://digital-bank-java.local/problems/validation-error"));
+        return ResponseEntity.badRequest().body(problem);
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     ResponseEntity<ProblemDetail> handleValidationFailure(MethodArgumentNotValidException exception) {
         var errors = exception.getBindingResult().getFieldErrors().stream()

@@ -11,7 +11,9 @@ public record PostLedgerEntryCommand(
         String currency,
         Instant effectiveAt,
         List<Line> debitLines,
-        List<Line> creditLines) {
+        List<Line> creditLines,
+        String correlationId,
+        String causationId) {
 
     public record Line(UUID accountId, BigDecimal amount) {}
 }

@@ -105,6 +105,46 @@ class LedgerApiIT {
     }
 
     @Test
+    void rejectsPostingWithoutCorrelationMetadata() throws Exception {
+        var response = sendJsonWithoutMetadata(
+                "POST",
+                "/internal/v1/ledger-entries",
+                """
+                {
+                  "postingRequestId": "%s",
+                  "description": "Missing metadata",
+                  "currency": "AED",
+                  "effectiveAt": "2026-07-03T09:00:00Z",
+                  "debitLines": [{"accountId": "%s", "amount": 100.00}],
+                  "creditLines": [{"accountId": "%s", "amount": 100.00}]
+                }
+                """.formatted(uniqueRequestId("ledger-missing-metadata"), UUID.randomUUID(), UUID.randomUUID()));
+
+        assertThat(response.statusCode()).isEqualTo(400);
+    }
+
+    @Test
+    void rejectsPostingWithBlankCausationMetadata() throws Exception {
+        var response = sendJsonWithMetadata(
+                "POST",
+                "/internal/v1/ledger-entries",
+                """
+                {
+                  "postingRequestId": "%s",
+                  "description": "Blank metadata",
+                  "currency": "AED",
+                  "effectiveAt": "2026-07-03T09:00:00Z",
+                  "debitLines": [{"accountId": "%s", "amount": 100.00}],
+                  "creditLines": [{"accountId": "%s", "amount": 100.00}]
+                }
+                """.formatted(uniqueRequestId("ledger-blank-metadata"), UUID.randomUUID(), UUID.randomUUID()),
+                "correlation-blank-test",
+                " ");
+
+        assertThat(response.statusCode()).isEqualTo(400);
+    }
+
+    @Test
     void replaysExactDuplicatePostingRequestId() throws Exception {
         var requestBody = """
                 {
@@ -264,11 +304,28 @@ class LedgerApiIT {
     }
 
     private HttpResponse<String> sendJson(String method, String path, String body) throws Exception {
+        return sendJsonWithMetadata(method, path, body, "correlation-test", "causation-test");
+    }
+
+    private HttpResponse<String> sendJsonWithoutMetadata(String method, String path, String body) throws Exception {
         return httpClient.send(
                 HttpRequest.newBuilder(URI.create("http://localhost:" + port + path))
                         .method(method, HttpRequest.BodyPublishers.ofString(body))
                         .header("Accept", "application/json")
                         .header("Content-Type", "application/json")
+                        .build(),
+                HttpResponse.BodyHandlers.ofString());
+    }
+
+    private HttpResponse<String> sendJsonWithMetadata(
+            String method, String path, String body, String correlationId, String causationId) throws Exception {
+        return httpClient.send(
+                HttpRequest.newBuilder(URI.create("http://localhost:" + port + path))
+                        .method(method, HttpRequest.BodyPublishers.ofString(body))
+                        .header("Accept", "application/json")
+                        .header("Content-Type", "application/json")
+                        .header("X-Correlation-Id", correlationId)
+                        .header("X-Causation-Id", causationId)
                         .build(),
                 HttpResponse.BodyHandlers.ofString());
     }

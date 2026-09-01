@@ -4,7 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.digitalbank.ledgerservice.application.port.in.PostLedgerEntryCommand;
+import com.digitalbank.ledgerservice.application.port.in.PostLedgerReversalCommand;
 import com.digitalbank.ledgerservice.application.port.out.LedgerEntryRepository;
+import com.digitalbank.ledgerservice.application.port.out.LedgerEventPublisher;
 import com.digitalbank.ledgerservice.domain.exception.UnbalancedLedgerEntryException;
 import com.digitalbank.ledgerservice.domain.model.LedgerEntry;
 import com.digitalbank.ledgerservice.domain.model.LedgerEntryId;
@@ -22,8 +24,9 @@ import org.junit.jupiter.api.Test;
 class LedgerServiceTest {
 
     private final InMemoryLedgerEntryRepository repository = new InMemoryLedgerEntryRepository();
+    private final RecordingLedgerEventPublisher publisher = new RecordingLedgerEventPublisher();
     private final Clock clock = Clock.fixed(Instant.parse("2026-07-03T10:15:30Z"), ZoneOffset.UTC);
-    private final LedgerService ledgerService = new LedgerService(repository, clock);
+    private final LedgerService ledgerService = new LedgerService(repository, publisher, clock);
 
     @Test
     void postsBalancedLedgerEntry() {
@@ -38,6 +41,10 @@ class LedgerServiceTest {
         assertThat(view.totalCreditAmount()).isEqualByComparingTo("100.00");
         assertThat(view.createdAt()).isEqualTo(clock.instant());
         assertThat(repository.entries()).hasSize(1);
+        assertThat(publisher.completed()).hasSize(1);
+        assertThat(publisher.completed().getFirst().entry()).isEqualTo(repository.entries().getFirst());
+        assertThat(publisher.completed().getFirst().correlationId()).isEqualTo("correlation-test");
+        assertThat(publisher.completed().getFirst().causationId()).isEqualTo("causation-test");
     }
 
     @Test
@@ -49,6 +56,7 @@ class LedgerServiceTest {
         assertThat(second.replay()).isTrue();
         assertThat(second.ledgerEntryId()).isEqualTo(first.ledgerEntryId());
         assertThat(repository.entries()).hasSize(1);
+        assertThat(publisher.completed()).hasSize(1);
     }
 
     @Test
@@ -61,6 +69,17 @@ class LedgerServiceTest {
     }
 
     @Test
+    void rejectsAmountsWithMoreThanFourDecimalPlaces() {
+        var command = balancedCommand("ledger-posting-precision", new BigDecimal("100.00001"), new BigDecimal("100.00001"));
+
+        assertThatThrownBy(() -> ledgerService.postLedgerEntry(command))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("amount must have no more than 4 decimal places");
+        assertThat(repository.entries()).isEmpty();
+        assertThat(publisher.completed()).isEmpty();
+    }
+
+    @Test
     void treatsDebitAndCreditBucketsAsTheSourceOfLineType() {
         var debitAccountId = UUID.randomUUID();
         var creditAccountId = UUID.randomUUID();
@@ -70,7 +89,9 @@ class LedgerServiceTest {
                 "AED",
                 Instant.parse("2026-07-03T09:00:00Z"),
                 List.of(new PostLedgerEntryCommand.Line(debitAccountId, new BigDecimal("100.00"))),
-                List.of(new PostLedgerEntryCommand.Line(creditAccountId, new BigDecimal("100.00"))));
+                List.of(new PostLedgerEntryCommand.Line(creditAccountId, new BigDecimal("100.00"))),
+                "correlation-test",
+                "causation-test");
 
         var view = ledgerService.postLedgerEntry(command);
 
@@ -85,6 +106,27 @@ class LedgerServiceTest {
                 });
     }
 
+    @Test
+    void publishesReversalCompletionWithSourceEntryIdAndMetadata() {
+        var source = ledgerService.postLedgerEntry(
+                balancedCommand("ledger-posting-source", new BigDecimal("100.00"), new BigDecimal("100.00")));
+
+        var reversal = ledgerService.reverseLedgerEntry(new PostLedgerReversalCommand(
+                UUID.fromString(source.ledgerEntryId()),
+                "ledger-reversal-001",
+                "Reverse posting",
+                Instant.parse("2026-07-03T11:00:00Z"),
+                "correlation-reversal-test",
+                "causation-reversal-test"));
+
+        assertThat(reversal.replay()).isFalse();
+        assertThat(publisher.completed()).hasSize(2);
+        assertThat(publisher.completed().getLast().reversalOfLedgerEntryId())
+                .isEqualTo(UUID.fromString(source.ledgerEntryId()));
+        assertThat(publisher.completed().getLast().correlationId()).isEqualTo("correlation-reversal-test");
+        assertThat(publisher.completed().getLast().causationId()).isEqualTo("causation-reversal-test");
+    }
+
     private static PostLedgerEntryCommand balancedCommand(
             String postingRequestId, BigDecimal debitAmount, BigDecimal creditAmount) {
         return new PostLedgerEntryCommand(
@@ -93,8 +135,45 @@ class LedgerServiceTest {
                 "AED",
                 Instant.parse("2026-07-03T09:00:00Z"),
                 List.of(new PostLedgerEntryCommand.Line(UUID.randomUUID(), debitAmount)),
-                List.of(new PostLedgerEntryCommand.Line(UUID.randomUUID(), creditAmount)));
+                List.of(new PostLedgerEntryCommand.Line(UUID.randomUUID(), creditAmount)),
+                "correlation-test",
+                "causation-test");
     }
+
+    private static final class RecordingLedgerEventPublisher implements LedgerEventPublisher {
+
+        private final List<CompletedCall> completed = new ArrayList<>();
+
+        @Override
+        public void recordPostingCompleted(
+                LedgerEntry entry,
+                UUID reversalOfLedgerEntryId,
+                String correlationId,
+                String causationId,
+                Instant occurredAt) {
+            completed.add(new CompletedCall(entry, reversalOfLedgerEntryId, correlationId, causationId, occurredAt));
+        }
+
+        @Override
+        public void recordPostingFailed(
+                String postingRequestId,
+                String failureCode,
+                String failureReason,
+                String correlationId,
+                String causationId,
+                Instant occurredAt) {}
+
+        List<CompletedCall> completed() {
+            return List.copyOf(completed);
+        }
+    }
+
+    private record CompletedCall(
+            LedgerEntry entry,
+            UUID reversalOfLedgerEntryId,
+            String correlationId,
+            String causationId,
+            Instant occurredAt) {}
 
     private static final class InMemoryLedgerEntryRepository implements LedgerEntryRepository {
 

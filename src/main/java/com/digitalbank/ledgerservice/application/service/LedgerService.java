@@ -8,6 +8,7 @@ import com.digitalbank.ledgerservice.application.port.in.PostLedgerReversalComma
 import com.digitalbank.ledgerservice.application.port.in.PostLedgerReversalInputPort;
 import com.digitalbank.ledgerservice.application.port.in.PostingResult;
 import com.digitalbank.ledgerservice.application.port.out.LedgerEntryRepository;
+import com.digitalbank.ledgerservice.application.port.out.LedgerEventPublisher;
 import com.digitalbank.ledgerservice.domain.exception.DuplicatePostingRequestException;
 import com.digitalbank.ledgerservice.domain.exception.LedgerEntryNotFoundException;
 import com.digitalbank.ledgerservice.domain.model.LedgerEntry;
@@ -24,10 +25,13 @@ import org.springframework.stereotype.Service;
 public class LedgerService implements PostLedgerEntryInputPort, GetLedgerEntryInputPort, PostLedgerReversalInputPort {
 
     private final LedgerEntryRepository ledgerEntryRepository;
+    private final LedgerEventPublisher ledgerEventPublisher;
     private final Clock clock;
 
-    public LedgerService(LedgerEntryRepository ledgerEntryRepository, Clock clock) {
+    public LedgerService(
+            LedgerEntryRepository ledgerEntryRepository, LedgerEventPublisher ledgerEventPublisher, Clock clock) {
         this.ledgerEntryRepository = ledgerEntryRepository;
+        this.ledgerEventPublisher = ledgerEventPublisher;
         this.clock = clock;
     }
 
@@ -59,7 +63,10 @@ public class LedgerService implements PostLedgerEntryInputPort, GetLedgerEntryIn
                 fingerprint,
                 null);
 
-        return new PostingResult(LedgerEntryView.fromLedgerEntry(ledgerEntryRepository.save(ledgerEntry)), false);
+        var savedEntry = ledgerEntryRepository.save(ledgerEntry);
+        ledgerEventPublisher.recordPostingCompleted(
+                savedEntry, null, command.correlationId(), command.causationId(), savedEntry.createdAt());
+        return new PostingResult(LedgerEntryView.fromLedgerEntry(savedEntry), false);
     }
 
     @Override
@@ -96,7 +103,14 @@ public class LedgerService implements PostLedgerEntryInputPort, GetLedgerEntryIn
                 reversedLines,
                 fingerprint,
                 sourceId);
-        return new PostingResult(LedgerEntryView.fromLedgerEntry(ledgerEntryRepository.save(reversal)), false);
+        var savedReversal = ledgerEntryRepository.save(reversal);
+        ledgerEventPublisher.recordPostingCompleted(
+                savedReversal,
+                sourceId.value(),
+                command.correlationId(),
+                command.causationId(),
+                savedReversal.createdAt());
+        return new PostingResult(LedgerEntryView.fromLedgerEntry(savedReversal), false);
     }
 
     private PostingResult replayOrConflict(

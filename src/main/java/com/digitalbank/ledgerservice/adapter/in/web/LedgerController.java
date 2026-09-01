@@ -23,11 +23,15 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @Tag(name = "Ledger Entries")
 class LedgerController {
+
+    private static final String CORRELATION_ID_HEADER = "X-Correlation-Id";
+    private static final String CAUSATION_ID_HEADER = "X-Causation-Id";
 
     private static final String VALIDATION_PROBLEM_EXAMPLE = """
             {
@@ -134,7 +138,11 @@ class LedgerController {
                                             name = "posting-conflict",
                                             summary = "Duplicate posting request",
                                             value = CONFLICT_PROBLEM_EXAMPLE)))
-    ResponseEntity<LedgerEntryResponse> postLedgerEntry(@Valid @RequestBody PostLedgerEntryRequest request) {
+    ResponseEntity<LedgerEntryResponse> postLedgerEntry(
+            @RequestHeader(name = CORRELATION_ID_HEADER, required = false) String correlationId,
+            @RequestHeader(name = CAUSATION_ID_HEADER, required = false) String causationId,
+            @Valid @RequestBody PostLedgerEntryRequest request) {
+        validateEventMetadata(correlationId, causationId);
         var result = postLedgerEntryInputPort.postLedgerEntry(new PostLedgerEntryCommand(
                 request.postingRequestId(),
                 request.description(),
@@ -145,7 +153,9 @@ class LedgerController {
                         .toList(),
                 request.creditLines().stream()
                         .map(line -> new PostLedgerEntryCommand.Line(line.accountId(), line.amount()))
-                        .toList()));
+                        .toList(),
+                correlationId,
+                causationId));
 
         var response = LedgerEntryResponse.from(result.entry());
         var status = result.replay() ? HttpStatus.OK : HttpStatus.CREATED;
@@ -193,9 +203,18 @@ class LedgerController {
                             mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
                             schema = @Schema(implementation = ProblemDetail.class)))
     ResponseEntity<LedgerEntryResponse> reverseLedgerEntry(
-            @PathVariable UUID ledgerEntryId, @Valid @RequestBody PostLedgerReversalRequest request) {
+            @PathVariable UUID ledgerEntryId,
+            @RequestHeader(name = CORRELATION_ID_HEADER, required = false) String correlationId,
+            @RequestHeader(name = CAUSATION_ID_HEADER, required = false) String causationId,
+            @Valid @RequestBody PostLedgerReversalRequest request) {
+        validateEventMetadata(correlationId, causationId);
         var result = postLedgerReversalInputPort.reverseLedgerEntry(new PostLedgerReversalCommand(
-                ledgerEntryId, request.postingRequestId(), request.description(), request.effectiveAt()));
+                ledgerEntryId,
+                request.postingRequestId(),
+                request.description(),
+                request.effectiveAt(),
+                correlationId,
+                causationId));
         var response = LedgerEntryResponse.from(result.entry());
         var status = result.replay() ? HttpStatus.OK : HttpStatus.CREATED;
         var builder = ResponseEntity.status(status);
@@ -226,5 +245,14 @@ class LedgerController {
     ResponseEntity<LedgerEntryResponse> getLedgerEntry(@PathVariable UUID ledgerEntryId) {
         var view = getLedgerEntryInputPort.getLedgerEntry(new LedgerEntryId(ledgerEntryId));
         return ResponseEntity.ok(LedgerEntryResponse.from(view));
+    }
+
+    private static void validateEventMetadata(String correlationId, String causationId) {
+        if (correlationId == null || correlationId.isBlank()) {
+            throw new InvalidLedgerRequestMetadataException(CORRELATION_ID_HEADER);
+        }
+        if (causationId == null || causationId.isBlank()) {
+            throw new InvalidLedgerRequestMetadataException(CAUSATION_ID_HEADER);
+        }
     }
 }
