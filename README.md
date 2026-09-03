@@ -147,13 +147,35 @@ curl --fail http://localhost:18083/v3/api-docs
 
 Ledger APIs are currently internal service APIs. Do not add a public API Gateway route until an approved consumer and authorization policy exist.
 
+## Outbox Delivery
+
+Ledger outcomes are written to PostgreSQL in the same transaction as the
+durable ledger decision. The delivery worker is disabled until Kafka runtime
+configuration is supplied, then retries with a stable event ID and quarantines
+records after its bounded attempt limit. The Kafka key is `aggregateId`, so
+ordering applies per aggregate within a single topic only. See
+[outbox delivery operations](docs/outbox-delivery.md) for the state machine,
+configuration, monitoring query, and explicit replay procedure.
+
+`transactionId` and `reservationRequestId` are required on internal posting and
+reversal requests that create governed ledger events. They are persisted and
+included in event payloads. The service never derives synthetic values from
+correlation IDs or posting request IDs.
+
+`LedgerPostingFailed.v1` is recorded only through the internal durable
+failure-decision input port. Validation, authorization, malformed or
+unbalanced requests, missing source entries, and infrastructure failures that
+occur before a durable decision do not emit a financial failure event.
+
 ## Kafka Direction
 
 Kafka is shared platform infrastructure, not part of the Ledger Service container.
 
 For local SIT, Kafka is deployed as shared infrastructure in `digital-bank-sit` and owned by `infra-sit`. For AWS UAT and production, the preferred direction is a managed Kafka service, such as Amazon MSK, connected privately to Kubernetes workloads.
 
-Ledger entry persistence is the current implementation. Outbox/inbox handling, event schemas, and Kafka publication must be added with explicit idempotency and reconciliation requirements; they are not implied by the presence of the Kafka broker.
+Kafka topic provisioning, Schema Registry subjects, consumer inboxes, and
+reconciliation remain platform or consumer responsibilities; they are not
+implied by the presence of the Kafka broker.
 
 ## Security, Promotion, And Contribution
 

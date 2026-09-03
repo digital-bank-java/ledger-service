@@ -42,6 +42,8 @@ class LedgerApiIT {
                   "description": "Settlement posting",
                   "currency": "AED",
                   "effectiveAt": "2026-07-03T09:00:00Z",
+                  "transactionId": "transaction-api-001",
+                  "reservationRequestId": "reservation-api-001",
                   "debitLines": [{"accountId": "%s", "amount": 125.50}],
                   "creditLines": [{"accountId": "%s", "amount": 125.50}]
                 }
@@ -80,6 +82,8 @@ class LedgerApiIT {
                   "description": "Unbalanced posting",
                   "currency": "AED",
                   "effectiveAt": "2026-07-03T09:00:00Z",
+                  "transactionId": "transaction-api-unbalanced",
+                  "reservationRequestId": "reservation-api-unbalanced",
                   "debitLines": [
                     {
                       "accountId": "%s",
@@ -115,6 +119,8 @@ class LedgerApiIT {
                   "description": "Missing metadata",
                   "currency": "AED",
                   "effectiveAt": "2026-07-03T09:00:00Z",
+                  "transactionId": "transaction-api-missing-correlation",
+                  "reservationRequestId": "reservation-api-missing-correlation",
                   "debitLines": [{"accountId": "%s", "amount": 100.00}],
                   "creditLines": [{"accountId": "%s", "amount": 100.00}]
                 }
@@ -134,6 +140,8 @@ class LedgerApiIT {
                   "description": "Blank metadata",
                   "currency": "AED",
                   "effectiveAt": "2026-07-03T09:00:00Z",
+                  "transactionId": "transaction-api-blank-causation",
+                  "reservationRequestId": "reservation-api-blank-causation",
                   "debitLines": [{"accountId": "%s", "amount": 100.00}],
                   "creditLines": [{"accountId": "%s", "amount": 100.00}]
                 }
@@ -152,6 +160,8 @@ class LedgerApiIT {
                   "description": "Duplicate posting",
                   "currency": "AED",
                   "effectiveAt": "2026-07-03T09:00:00Z",
+                  "transactionId": "transaction-api-replay",
+                  "reservationRequestId": "reservation-api-replay",
                   "debitLines": [
                     {
                       "accountId": "%s",
@@ -187,6 +197,8 @@ class LedgerApiIT {
                   "description": "Original posting",
                   "currency": "AED",
                   "effectiveAt": "2026-07-03T09:00:00Z",
+                  "transactionId": "transaction-api-conflict",
+                  "reservationRequestId": "reservation-api-conflict",
                   "debitLines": [{"accountId": "%s", "amount": 100.00}],
                   "creditLines": [{"accountId": "%s", "amount": 100.00}]
                 }
@@ -213,6 +225,8 @@ class LedgerApiIT {
                   "description": "Original posting",
                   "currency": "AED",
                   "effectiveAt": "2026-07-03T09:00:00Z",
+                  "transactionId": "transaction-api-reversal-source",
+                  "reservationRequestId": "reservation-api-reversal-source",
                   "debitLines": [{"accountId": "%s", "amount": 100.00}],
                   "creditLines": [{"accountId": "%s", "amount": 100.00}]
                 }
@@ -224,7 +238,9 @@ class LedgerApiIT {
                 {
                   "postingRequestId": "ledger-reversal-001",
                   "description": "Reverse incorrect posting",
-                  "effectiveAt": "2026-07-03T10:00:00Z"
+                  "effectiveAt": "2026-07-03T10:00:00Z",
+                  "transactionId": "transaction-api-reversal",
+                  "reservationRequestId": "reservation-api-reversal"
                 }
                 """;
 
@@ -248,6 +264,8 @@ class LedgerApiIT {
                   "description": "Concurrent posting",
                   "currency": "AED",
                   "effectiveAt": "2026-07-03T09:00:00Z",
+                  "transactionId": "transaction-api-concurrent",
+                  "reservationRequestId": "reservation-api-concurrent",
                   "debitLines": [{"accountId": "%s", "amount": 100.00}],
                   "creditLines": [{"accountId": "%s", "amount": 100.00}]
                 }

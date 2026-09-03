@@ -29,7 +29,7 @@ class LedgerControllerTest {
             .build();
 
     @Test
-    void mapsCorrelationAndCausationHeadersIntoPostingCommand() throws Exception {
+    void mapsEventMetadataIntoPostingCommand() throws Exception {
         mockMvc.perform(post("/internal/v1/ledger-entries")
                         .header("X-Correlation-Id", "correlation-controller-test")
                         .header("X-Causation-Id", "causation-controller-test")
@@ -38,7 +38,11 @@ class LedgerControllerTest {
                 .andExpect(status().isCreated());
 
         assertThat(postingPort.command.toString())
-                .contains("correlation-controller-test", "causation-controller-test");
+                .contains(
+                        "correlation-controller-test",
+                        "causation-controller-test",
+                        "transaction-controller-test",
+                        "reservation-controller-test");
     }
 
     @Test
@@ -52,6 +56,20 @@ class LedgerControllerTest {
     }
 
     @Test
+    void rejectsPostingWithoutGovernedEventIdentifiers() throws Exception {
+        mockMvc.perform(post("/internal/v1/ledger-entries")
+                        .header("X-Correlation-Id", "correlation-controller-test")
+                        .header("X-Causation-Id", "causation-controller-test")
+                        .contentType("application/json")
+                        .content(validPostingJson()
+                                .replace("\"transactionId\": \"transaction-controller-test\",\n", "")
+                                .replace("\"reservationRequestId\": \"reservation-controller-test\",\n", "")))
+                .andExpect(status().isBadRequest());
+
+        assertThat(postingPort.command).isNull();
+    }
+
+    @Test
     void rejectsBlankCausationHeaderOnReversal() throws Exception {
         mockMvc.perform(post("/internal/v1/ledger-entries/" + UUID.randomUUID() + "/reversals")
                         .header("X-Correlation-Id", "correlation-controller-test")
@@ -61,7 +79,9 @@ class LedgerControllerTest {
                                 {
                                   "postingRequestId": "controller-reversal-001",
                                   "description": "Controller reversal",
-                                  "effectiveAt": "2026-07-03T09:00:00Z"
+                                  "effectiveAt": "2026-07-03T09:00:00Z",
+                                  "transactionId": "transaction-controller-reversal-test",
+                                  "reservationRequestId": "reservation-controller-reversal-test"
                                 }
                                 """))
                 .andExpect(status().isBadRequest());
@@ -84,6 +104,8 @@ class LedgerControllerTest {
                   "description": "Controller posting",
                   "currency": "AED",
                   "effectiveAt": "2026-07-03T09:00:00Z",
+                  "transactionId": "transaction-controller-test",
+                  "reservationRequestId": "reservation-controller-test",
                   "debitLines": [{"accountId": "%s", "amount": 100.00}],
                   "creditLines": [{"accountId": "%s", "amount": 100.00}]
                 }

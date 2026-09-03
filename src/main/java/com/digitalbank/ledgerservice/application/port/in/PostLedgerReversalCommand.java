@@ -9,4 +9,25 @@ public record PostLedgerReversalCommand(
         String description,
         Instant effectiveAt,
         String correlationId,
-        String causationId) {}
+        String causationId,
+        String transactionId,
+        String reservationRequestId) {
+
+    public PostLedgerReversalCommand(
+            UUID sourceLedgerEntryId,
+            String postingRequestId,
+            String description,
+            Instant effectiveAt,
+            String correlationId,
+            String causationId) {
+        this(
+                sourceLedgerEntryId,
+                postingRequestId,
+                description,
+                effectiveAt,
+                correlationId,
+                causationId,
+                null,
+                null);
+    }
+}
