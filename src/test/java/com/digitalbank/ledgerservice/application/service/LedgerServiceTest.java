@@ -11,6 +11,7 @@ import com.digitalbank.ledgerservice.domain.exception.UnbalancedLedgerEntryExcep
 import com.digitalbank.ledgerservice.domain.model.LedgerEntry;
 import com.digitalbank.ledgerservice.domain.model.LedgerEntryId;
 import com.digitalbank.ledgerservice.domain.model.LedgerLineType;
+import com.digitalbank.ledgerservice.domain.model.LedgerPostingFailureDecision;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
@@ -66,6 +67,49 @@ class LedgerServiceTest {
         assertThatThrownBy(() -> ledgerService.postLedgerEntry(command))
                 .isInstanceOf(UnbalancedLedgerEntryException.class)
                 .hasMessageContaining("total debit amount must equal total credit amount");
+        assertThat(publisher.failed()).isEmpty();
+    }
+
+    @Test
+    void requiresGovernedIdentifiersBeforePostingLedgerEvent() {
+        var command = new PostLedgerEntryCommand(
+                "ledger-posting-missing-transaction",
+                "Settlement posting",
+                "AED",
+                Instant.parse("2026-07-03T09:00:00Z"),
+                List.of(new PostLedgerEntryCommand.Line(UUID.randomUUID(), new BigDecimal("100.00"))),
+                List.of(new PostLedgerEntryCommand.Line(UUID.randomUUID(), new BigDecimal("100.00"))),
+                "correlation-test",
+                "causation-test",
+                null,
+                "reservation-test");
+
+        assertThatThrownBy(() -> ledgerService.postLedgerEntry(command))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("transactionId is required");
+        assertThat(repository.entries()).isEmpty();
+        assertThat(publisher.completed()).isEmpty();
+    }
+
+    @Test
+    void rejectsBlankCorrelationMetadataBeforePostingLedgerEvent() {
+        var command = new PostLedgerEntryCommand(
+                "ledger-posting-blank-correlation",
+                "Settlement posting",
+                "AED",
+                Instant.parse("2026-07-03T09:00:00Z"),
+                List.of(new PostLedgerEntryCommand.Line(UUID.randomUUID(), new BigDecimal("100.00"))),
+                List.of(new PostLedgerEntryCommand.Line(UUID.randomUUID(), new BigDecimal("100.00"))),
+                " ",
+                "causation-test",
+                "transaction-test",
+                "reservation-test");
+
+        assertThatThrownBy(() -> ledgerService.postLedgerEntry(command))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("correlationId is required");
+        assertThat(repository.entries()).isEmpty();
+        assertThat(publisher.completed()).isEmpty();
     }
 
     @Test
@@ -91,7 +135,9 @@ class LedgerServiceTest {
                 List.of(new PostLedgerEntryCommand.Line(debitAccountId, new BigDecimal("100.00"))),
                 List.of(new PostLedgerEntryCommand.Line(creditAccountId, new BigDecimal("100.00"))),
                 "correlation-test",
-                "causation-test");
+                "causation-test",
+                "transaction-test",
+                "reservation-test");
 
         var view = ledgerService.postLedgerEntry(command);
 
@@ -117,7 +163,9 @@ class LedgerServiceTest {
                 "Reverse posting",
                 Instant.parse("2026-07-03T11:00:00Z"),
                 "correlation-reversal-test",
-                "causation-reversal-test"));
+                "causation-reversal-test",
+                "transaction-reversal-test",
+                "reservation-reversal-test"));
 
         assertThat(reversal.replay()).isFalse();
         assertThat(publisher.completed()).hasSize(2);
@@ -125,6 +173,122 @@ class LedgerServiceTest {
                 .isEqualTo(UUID.fromString(source.ledgerEntryId()));
         assertThat(publisher.completed().getLast().correlationId()).isEqualTo("correlation-reversal-test");
         assertThat(publisher.completed().getLast().causationId()).isEqualTo("causation-reversal-test");
+    }
+
+    @Test
+    void rejectsPostingReplayWithDifferentGovernedIdentifiers() {
+        var debitAccountId = UUID.randomUUID();
+        var creditAccountId = UUID.randomUUID();
+        var first = new PostLedgerEntryCommand(
+                "ledger-posting-governed-replay",
+                "Settlement posting",
+                "AED",
+                Instant.parse("2026-07-03T09:00:00Z"),
+                List.of(new PostLedgerEntryCommand.Line(debitAccountId, new BigDecimal("100.00"))),
+                List.of(new PostLedgerEntryCommand.Line(creditAccountId, new BigDecimal("100.00"))),
+                "correlation-test",
+                "causation-test",
+                "transaction-original",
+                "reservation-original");
+        ledgerService.postLedgerEntry(first);
+        var replayWithDifferentMetadata = new PostLedgerEntryCommand(
+                first.postingRequestId(),
+                first.description(),
+                first.currency(),
+                first.effectiveAt(),
+                first.debitLines(),
+                first.creditLines(),
+                first.correlationId(),
+                first.causationId(),
+                "transaction-different",
+                "reservation-different");
+
+        assertThatThrownBy(() -> ledgerService.postLedgerEntry(replayWithDifferentMetadata))
+                .isInstanceOf(com.digitalbank.ledgerservice.domain.exception.DuplicatePostingRequestException.class);
+        assertThat(publisher.completed()).hasSize(1);
+    }
+
+    @Test
+    void rejectsPostingReplayWithDifferentEventMetadata() {
+        var first = balancedCommand(
+                "ledger-posting-event-metadata-replay", new BigDecimal("100.00"), new BigDecimal("100.00"));
+        ledgerService.postLedgerEntry(first);
+        var replayWithDifferentMetadata = new PostLedgerEntryCommand(
+                first.postingRequestId(),
+                first.description(),
+                first.currency(),
+                first.effectiveAt(),
+                first.debitLines(),
+                first.creditLines(),
+                "correlation-different",
+                first.causationId(),
+                first.transactionId(),
+                first.reservationRequestId());
+
+        assertThatThrownBy(() -> ledgerService.postLedgerEntry(replayWithDifferentMetadata))
+                .isInstanceOf(com.digitalbank.ledgerservice.domain.exception.DuplicatePostingRequestException.class);
+        assertThat(publisher.completed()).hasSize(1);
+    }
+
+    @Test
+    void rejectsReversalReplayWithDifferentGovernedIdentifiers() {
+        var source = ledgerService.postLedgerEntry(
+                balancedCommand("ledger-posting-reversal-governed-source", new BigDecimal("100.00"), new BigDecimal("100.00")));
+        var first = new PostLedgerReversalCommand(
+                UUID.fromString(source.ledgerEntryId()),
+                "ledger-reversal-governed-replay",
+                "Reverse posting",
+                Instant.parse("2026-07-03T11:00:00Z"),
+                "correlation-reversal-test",
+                "causation-reversal-test",
+                "transaction-original",
+                "reservation-original");
+        ledgerService.reverseLedgerEntry(first);
+        var replayWithDifferentMetadata = new PostLedgerReversalCommand(
+                first.sourceLedgerEntryId(),
+                first.postingRequestId(),
+                first.description(),
+                first.effectiveAt(),
+                first.correlationId(),
+                first.causationId(),
+                "transaction-different",
+                "reservation-different");
+
+        assertThatThrownBy(() -> ledgerService.reverseLedgerEntry(replayWithDifferentMetadata))
+                .isInstanceOf(com.digitalbank.ledgerservice.domain.exception.DuplicatePostingRequestException.class);
+        assertThat(publisher.completed()).hasSize(2);
+    }
+
+    @Test
+    void rejectsReversalReplayWithDifferentEventMetadata() {
+        var source = ledgerService.postLedgerEntry(
+                balancedCommand(
+                        "ledger-posting-reversal-event-metadata-source",
+                        new BigDecimal("100.00"),
+                        new BigDecimal("100.00")));
+        var first = new PostLedgerReversalCommand(
+                UUID.fromString(source.ledgerEntryId()),
+                "ledger-reversal-event-metadata-replay",
+                "Reverse posting",
+                Instant.parse("2026-07-03T11:00:00Z"),
+                "correlation-reversal-original",
+                "causation-reversal-original",
+                "transaction-reversal-original",
+                "reservation-reversal-original");
+        ledgerService.reverseLedgerEntry(first);
+        var replayWithDifferentMetadata = new PostLedgerReversalCommand(
+                first.sourceLedgerEntryId(),
+                first.postingRequestId(),
+                first.description(),
+                first.effectiveAt(),
+                "correlation-reversal-different",
+                first.causationId(),
+                first.transactionId(),
+                first.reservationRequestId());
+
+        assertThatThrownBy(() -> ledgerService.reverseLedgerEntry(replayWithDifferentMetadata))
+                .isInstanceOf(com.digitalbank.ledgerservice.domain.exception.DuplicatePostingRequestException.class);
+        assertThat(publisher.completed()).hasSize(2);
     }
 
     private static PostLedgerEntryCommand balancedCommand(
@@ -137,12 +301,15 @@ class LedgerServiceTest {
                 List.of(new PostLedgerEntryCommand.Line(UUID.randomUUID(), debitAmount)),
                 List.of(new PostLedgerEntryCommand.Line(UUID.randomUUID(), creditAmount)),
                 "correlation-test",
-                "causation-test");
+                "causation-test",
+                "transaction-test",
+                "reservation-test");
     }
 
     private static final class RecordingLedgerEventPublisher implements LedgerEventPublisher {
 
         private final List<CompletedCall> completed = new ArrayList<>();
+        private final List<LedgerPostingFailureDecision> failed = new ArrayList<>();
 
         @Override
         public void recordPostingCompleted(
@@ -150,21 +317,30 @@ class LedgerServiceTest {
                 UUID reversalOfLedgerEntryId,
                 String correlationId,
                 String causationId,
+                String transactionId,
+                String reservationRequestId,
                 Instant occurredAt) {
-            completed.add(new CompletedCall(entry, reversalOfLedgerEntryId, correlationId, causationId, occurredAt));
+            completed.add(new CompletedCall(
+                    entry,
+                    reversalOfLedgerEntryId,
+                    correlationId,
+                    causationId,
+                    transactionId,
+                    reservationRequestId,
+                    occurredAt));
         }
 
         @Override
-        public void recordPostingFailed(
-                String postingRequestId,
-                String failureCode,
-                String failureReason,
-                String correlationId,
-                String causationId,
-                Instant occurredAt) {}
+        public void recordPostingFailed(LedgerPostingFailureDecision decision) {
+            failed.add(decision);
+        }
 
         List<CompletedCall> completed() {
             return List.copyOf(completed);
+        }
+
+        List<LedgerPostingFailureDecision> failed() {
+            return List.copyOf(failed);
         }
     }
 
@@ -173,6 +349,8 @@ class LedgerServiceTest {
             UUID reversalOfLedgerEntryId,
             String correlationId,
             String causationId,
+            String transactionId,
+            String reservationRequestId,
             Instant occurredAt) {}
 
     private static final class InMemoryLedgerEntryRepository implements LedgerEntryRepository {
