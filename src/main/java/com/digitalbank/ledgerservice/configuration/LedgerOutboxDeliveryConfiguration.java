@@ -52,7 +52,7 @@ class LedgerOutboxDeliveryConfiguration {
             this.pollDelayMillis = pollDelayMillis;
         }
 
-        @Scheduled(fixedDelayString = "#{@outboxDeliveryScheduler.pollDelayMillis}")
+        @Scheduled(fixedDelayString = "${ledger.outbox.delivery.poll-delay:5s}")
         public void deliverPendingEvents() {
             service.deliverPendingEvents();
         }

@@ -14,6 +14,7 @@ import java.util.UUID;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.header.internals.RecordHeaders;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 import org.springframework.aop.support.AopUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -23,13 +24,17 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 import org.springframework.dao.DataAccessException;
+import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
-@SpringBootTest(properties = "ledger.posting.consumer.enabled=false")
+@SpringBootTest(properties = {
+    "ledger.posting.consumer.enabled=false",
+    "ledger.outbox.delivery.enabled=true"
+})
 @Testcontainers
 class LedgerPostingKafkaConsumerIT {
 
@@ -246,6 +251,12 @@ class LedgerPostingKafkaConsumerIT {
         @Primary
         Clock fixedClock() {
             return Clock.fixed(FIXED_NOW, ZoneOffset.UTC);
+        }
+
+        @Bean
+        @SuppressWarnings("unchecked")
+        KafkaTemplate<String, String> kafkaTemplate() {
+            return Mockito.mock(KafkaTemplate.class);
         }
     }
 }
