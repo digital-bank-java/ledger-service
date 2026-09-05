@@ -8,6 +8,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
 
@@ -19,6 +20,7 @@ class KafkaOutboxEventDeliveryTransport implements OutboxEventDeliveryTransport 
     private final Duration publishTimeout;
     private final KafkaOutboxEventRecordFactory recordFactory = new KafkaOutboxEventRecordFactory();
 
+    @Autowired
     KafkaOutboxEventDeliveryTransport(
             KafkaTemplate<String, String> kafkaTemplate, LedgerOutboxDeliveryProperties properties) {
         this(kafkaTemplate, properties.getPublishTimeout());
