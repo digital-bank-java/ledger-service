@@ -184,3 +184,8 @@ The SIT deployment uses an internal `ClusterIP` Service, a non-root container, a
 The same artifact is intended to move through `sit`, `uat`, and `prod` without rebuilding. UAT and production infrastructure will use managed services and controlled secret delivery.
 
 Pull requests and changes to `main` run Maven verification, Helm lint/rendering, and a container smoke test. Use a tracked issue, dedicated branch, and pull request for each change. See the organization [README standard](https://github.com/digital-bank-java/.github/blob/main/docs/readme-standard.md) and [platform conventions](https://github.com/digital-bank-java/.github/blob/main/docs/platform-conventions.md).
+
+## Operational Logging
+
+The service emits one-line ECS JSON console events and propagates the bounded
+`X-Correlation-ID` boundary defined in the organization [structured logging and redaction contract](https://github.com/digital-bank-java/.github/blob/main/docs/structured-logging-and-redaction.md). Request bodies, credentials, tokens, ledger data, and customer data are not logged.
