@@ -171,6 +171,16 @@ occur before a durable decision do not emit a financial failure event.
 
 Kafka is shared platform infrastructure, not part of the Ledger Service container.
 
+When `ledger.posting.consumer.enabled=true`, Ledger consumes the governed
+`ledger.posting.requested.v1` command topic through a dedicated listener
+container. A record that cannot be parsed or processed after two bounded
+one-second retries is published unchanged to
+`ledger.posting.requested.v1.dlq`, retaining its Kafka key, partition, and
+diagnostic error headers. The recovered offset is committed so a poison record
+cannot block the partition indefinitely. Valid commands that are rejected by
+ledger business rules continue through the durable `LedgerPostingFailed.v1`
+failure-decision path instead of being quarantined as malformed messages.
+
 For local SIT, Kafka is deployed as shared infrastructure in `digital-bank-sit` and owned by `infra-sit`. For AWS UAT and production, the preferred direction is a managed Kafka service, such as Amazon MSK, connected privately to Kubernetes workloads.
 
 Kafka topic provisioning, Schema Registry subjects, consumer inboxes, and

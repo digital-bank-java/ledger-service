@@ -77,6 +77,7 @@ class LedgerPostingRequestedConsumer {
     @KafkaListener(
             topics = "${ledger.posting.consumer.topic:ledger.posting.requested.v1}",
             groupId = "${ledger.posting.consumer.group-id:ledger-service}",
+            containerFactory = "ledgerKafkaListenerContainerFactory",
             autoStartup = "${ledger.posting.consumer.enabled:false}")
     @Transactional
     void consume(ConsumerRecord<String, String> record) {
