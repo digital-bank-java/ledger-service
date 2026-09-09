@@ -219,6 +219,7 @@ class LedgerPostingKafkaConsumerIT {
                         Map.entry("causationId", causationId),
                         Map.entry("transactionId", transactionId),
                         Map.entry("reservationRequestId", "reservation-" + postingRequestId),
+                        Map.entry("reservationId", "reservation-id-" + transactionId),
                         Map.entry("postingRequestId", postingRequestId),
                         Map.entry("description", "Kafka posting"),
                         Map.entry("currency", "AED"),
