@@ -8,6 +8,7 @@ import com.digitalbank.ledgerservice.application.port.out.LedgerEntryRepository;
 import com.digitalbank.ledgerservice.application.port.out.LedgerPostingCommandInboxEntry;
 import com.digitalbank.ledgerservice.application.port.out.LedgerPostingCommandInboxRepository;
 import com.digitalbank.ledgerservice.application.port.out.LedgerPostingFailureDecisionRepository;
+import com.digitalbank.ledgerservice.configuration.LedgerPostingAcceptanceFixtureProperties;
 import com.digitalbank.ledgerservice.domain.exception.DuplicatePostingRequestException;
 import com.digitalbank.ledgerservice.domain.exception.UnbalancedLedgerEntryException;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -44,6 +45,9 @@ class LedgerPostingRequestedConsumer {
     private static final String EXPECTED_PRODUCER = "transaction-service";
     private static final String VALIDATION_ERROR = "VALIDATION_ERROR";
     private static final String CONFLICT_ERROR = "CONFLICT";
+    private static final String INTERNAL_ERROR = "INTERNAL_ERROR";
+    private static final String ACCEPTANCE_FIXTURE_FAILURE_REASON =
+            "SIT acceptance fixture requested an internal ledger posting failure";
 
     private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
     private final Validator validator;
@@ -52,6 +56,7 @@ class LedgerPostingRequestedConsumer {
     private final LedgerPostingCommandInboxRepository inboxRepository;
     private final LedgerEntryRepository ledgerEntryRepository;
     private final LedgerPostingFailureDecisionRepository failureDecisionRepository;
+    private final LedgerPostingAcceptanceFixtureProperties acceptanceFixtureProperties;
     private final Clock clock;
     private final String topic;
 
@@ -62,6 +67,7 @@ class LedgerPostingRequestedConsumer {
             LedgerPostingCommandInboxRepository inboxRepository,
             LedgerEntryRepository ledgerEntryRepository,
             LedgerPostingFailureDecisionRepository failureDecisionRepository,
+            LedgerPostingAcceptanceFixtureProperties acceptanceFixtureProperties,
             Clock clock,
             @Value("${ledger.posting.consumer.topic:ledger.posting.requested.v1}") String topic) {
         this.validator = validator;
@@ -70,6 +76,7 @@ class LedgerPostingRequestedConsumer {
         this.inboxRepository = inboxRepository;
         this.ledgerEntryRepository = ledgerEntryRepository;
         this.failureDecisionRepository = failureDecisionRepository;
+        this.acceptanceFixtureProperties = acceptanceFixtureProperties;
         this.clock = clock;
         this.topic = topic;
     }
@@ -89,6 +96,15 @@ class LedgerPostingRequestedConsumer {
 
         try {
             validateRecord(record, payload);
+            if (acceptanceFixtureProperties.matchesPostingRequestId(payload.postingRequestId())) {
+                recordFailureOrRethrow(
+                        payload,
+                        INTERNAL_ERROR,
+                        ACCEPTANCE_FIXTURE_FAILURE_REASON,
+                        new IllegalStateException(ACCEPTANCE_FIXTURE_FAILURE_REASON));
+                saveInbox(payload, record.topic(), resolvedEventId);
+                return;
+            }
             postLedgerEntryInputPort.postLedgerEntry(toCommand(payload));
             saveInbox(payload, record.topic(), resolvedEventId);
         } catch (IllegalArgumentException | ConstraintViolationException | UnbalancedLedgerEntryException exception) {

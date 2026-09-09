@@ -181,6 +181,21 @@ cannot block the partition indefinitely. Valid commands that are rejected by
 ledger business rules continue through the durable `LedgerPostingFailed.v1`
 failure-decision path instead of being quarantined as malformed messages.
 
+### SIT Acceptance Failure Fixture
+
+The Kafka consumer has a disabled-by-default, deployment-only SIT acceptance
+fixture for the compensation scenario. It has no HTTP route. Its only active
+Spring profile must be `sit`. Set both process environment variables
+`LEDGER_POSTING_ACCEPTANCE_FIXTURE_ENABLED=true` and
+`LEDGER_POSTING_ACCEPTANCE_FIXTURE_POSTING_REQUEST_ID` to a nonblank value;
+the latter must match the bound request ID exactly. Configuration from Config
+Server or application properties alone cannot activate the fixture. It matches
+that exact posting request ID and records the normal governed
+`LedgerPostingFailed.v1` decision with `INTERNAL_ERROR`, including the inbox
+and outbox records. Startup rejects an enabled fixture if any of these safety
+conditions is not satisfied. Restore both overrides immediately after the one
+acceptance case completes.
+
 For local SIT, Kafka is deployed as shared infrastructure in `digital-bank-sit` and owned by `infra-sit`. For AWS UAT and production, the preferred direction is a managed Kafka service, such as Amazon MSK, connected privately to Kubernetes workloads.
 
 Kafka topic provisioning, Schema Registry subjects, consumer inboxes, and
