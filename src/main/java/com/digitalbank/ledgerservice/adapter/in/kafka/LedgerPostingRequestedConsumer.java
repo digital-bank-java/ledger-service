@@ -11,6 +11,7 @@ import com.digitalbank.ledgerservice.application.port.out.LedgerPostingFailureDe
 import com.digitalbank.ledgerservice.configuration.LedgerPostingAcceptanceFixtureProperties;
 import com.digitalbank.ledgerservice.domain.exception.DuplicatePostingRequestException;
 import com.digitalbank.ledgerservice.domain.exception.UnbalancedLedgerEntryException;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.validation.ConstraintViolationException;
@@ -252,6 +253,7 @@ class LedgerPostingRequestedConsumer {
         }
     }
 
+    @JsonIgnoreProperties(ignoreUnknown = true)
     record LedgerPostingRequestedPayload(
             @NotBlank String eventId,
             @NotBlank String eventType,
