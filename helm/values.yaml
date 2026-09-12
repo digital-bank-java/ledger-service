@@ -12,6 +12,10 @@ runtime:
   profile: default
   configServerUrl: http://config-server:8888
 
+security:
+  secretName: auth-service-secrets
+  secretKey: jwt-secret
+
 database:
   secretName: postgres
   usernameKey: POSTGRES_USER
